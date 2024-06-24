@@ -1,0 +1,11 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: video-ai-app-config
+data:
+  OVMS_ENDPOINT: "localhost:9000"
+  MODEL_NAME: "yolov8n"
+  DEVICE: "0"
+  PROTOCOL_BUFFERS_PYTHON_IMPLEMENTATION: "python"
+  PORT: "5000"
+  CAPTURE_WAIT_TIME: "1"
