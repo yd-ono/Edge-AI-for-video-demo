@@ -1,0 +1,37 @@
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: app-workspace
+spec:
+  resources:
+    requests:
+      storage: 200Mi
+  volumeMode: Filesystem
+  accessModes:
+    - ReadWriteOnce
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: manifests-workspace
+spec:
+  resources:
+    requests:
+      storage: 200Mi
+  volumeMode: Filesystem
+  accessModes:
+    - ReadWriteOnce
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: tempdir
+spec:
+  resources:
+    requests:
+      storage: 200Mi
+  volumeMode: Filesystem
+  accessModes:
+    - ReadWriteOnce
+

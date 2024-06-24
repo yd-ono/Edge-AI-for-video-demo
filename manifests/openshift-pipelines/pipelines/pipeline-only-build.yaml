@@ -1,0 +1,67 @@
+apiVersion: tekton.dev/v1beta1
+kind: Pipeline
+metadata:
+  name: pipeline-demo-only-build
+spec:
+  params:
+    - name: target-app-path
+      type: string
+      description: Git Repository Target path (eg. src/apps/test)
+    - name: git-app-url
+      type: string
+      description: Git Repository Git URL
+      default: https://github.com/yd-ono/Edge-AI-for-video-demo
+    - name: git-app-revision
+      type: string
+      description: Git Repository Revision(master,main,etc...)
+      default: main
+    - description: Project in OpenShift Container Registry
+      name: container-registry-project
+      type: string
+      default: cps-demo
+    - description: Container Registry URL
+      name: container-registry-url
+      type: string
+      default: quay.io/yono
+    - description: Container Image name
+      name: container-image-name
+      type: string
+    - description: Container Image version
+      name: container-image-version
+      type: string
+      default: v1
+
+  tasks:
+    - name: git-clone-app
+      params:
+        - name: url
+          value: $(params.git-app-url)
+        - name: revision
+          value: $(params.git-app-revision)
+        - name: sslVerify
+          value: 'false'
+      taskRef:
+        kind: ClusterTask
+        name: git-clone
+      workspaces:
+        - name: output
+          workspace: app-workspace
+
+    - name: build-container
+      params:
+        - name: CONTEXT
+          value: $(workspaces.source.path)/$(params.target-app-path)
+        - name: IMAGE
+          value: $(params.container-registry-url)/$(params.container-registry-project)/$(params.container-image-name):$(params.container-image-version)
+      runAfter:
+        - git-clone-app
+      taskRef:
+        kind: ClusterTask
+        name: buildah
+      workspaces:
+        - name: source
+          workspace: app-workspace
+
+  workspaces:
+    - description: Git Repo for Apps
+      name: app-workspace
