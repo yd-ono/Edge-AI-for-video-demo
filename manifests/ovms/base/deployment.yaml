@@ -1,0 +1,45 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  annotations:
+    app: model-gen
+  labels:
+    app: model-gen
+  name: model-gen
+  namespace: cps
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: model-gen
+  strategy: {}
+  template:
+    metadata:
+      annotations:
+        app: model-gen
+      labels:
+        app: model-gen
+        version: v1
+    spec:
+      containers:
+      - image: registry.connect.redhat.com/intel/openvino-model-server:latest
+        imagePullPolicy: IfNotPresent
+        name: model-gen
+        ports:
+        - containerPort: 8001
+          protocol: TCP
+        envFrom:
+          - configMapRef:
+              name: model-gen-config
+        volumeMounts:
+        - mountPath: /models
+          name: modelpath
+        securityContext:
+          privileged: true
+      restartPolicy: Always
+      volumes:
+      - name: modelpath
+        hostPath:
+          path: /models
+      serviceAccount: model-admin
+      serviceAccountName: model-admin

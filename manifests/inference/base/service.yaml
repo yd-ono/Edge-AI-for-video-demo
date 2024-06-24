@@ -1,0 +1,16 @@
+kind: Service
+apiVersion: v1
+metadata:
+  name: video-ai
+  labels:
+    app: video-ai
+spec:
+  type: NodePort
+  ports:
+    - name: 5000-tcp
+      protocol: TCP
+      port: 5000
+      targetPort: 5000
+      nodePort: 32000
+  selector:
+    app: video-ai
