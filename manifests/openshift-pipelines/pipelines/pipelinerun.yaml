@@ -1,0 +1,43 @@
+apiVersion: tekton.dev/v1
+kind: PipelineRun
+metadata:
+  name: pipeline-demo-oee-handler
+  labels:
+    tekton.dev/pipeline: pipeline-demo
+spec:
+  params:
+    - name: target-app-path
+      value: oee-handler
+    - name: git-app-url
+      value: 'https://gitlab.com/yono1/cps-demo'
+    - name: git-app-revision
+      value: main
+    - name: git-manifests-url
+      value: 'https://gitlab.com/yono1/cps-demo-manifests'
+    - name: git-manifests-revision
+      value: main
+    - name: container-registry-project
+      value: mini-factory
+    - description: Container Registry URL
+      name: container-registry-url
+      type: string
+    - name: container-image-name
+      value: oee-handler
+    - name: container-image-version
+      value: v1
+  pipelineRef:
+    name: pipeline-demo
+  taskRunTemplate:
+    serviceAccountName: pipeline
+  timeouts:
+    pipeline: 1h0m0s
+  workspaces:
+    - name: app-workspace
+      persistentVolumeClaim:
+        claimName: app-workspace
+    - name: manifests-workspace
+      persistentVolumeClaim:
+        claimName: manifests-workspace
+    - name: temp-dir
+      persistentVolumeClaim:
+        claimName: tempdir

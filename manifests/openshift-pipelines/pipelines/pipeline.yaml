@@ -1,0 +1,149 @@
+apiVersion: tekton.dev/v1beta1
+kind: Pipeline
+metadata:
+  name: pipeline-demo
+spec:
+  params:
+    - name: target-app-path
+      type: string
+      description: Git Repository Target path (eg. src/apps/test)
+    - name: git-app-url
+      type: string
+      description: Git Repository Git URL
+      default: https://gitlab.com/yono1/cps-demo
+    - name: git-app-revision
+      type: string
+      description: Git Repository Revision(master,main,etc...)
+      default: main
+    - name: git-manifests-url
+      type: string
+      description: Git Repository Git URL for kubernetes manifests
+      default: https://gitlab.com/yono1/cps-demo-manifests
+    - name: git-manifests-revision
+      type: string
+      description: Git Repository Revision(master,main,etc...)
+      default: main
+    - description: Project in OpenShift Container Registry
+      name: container-registry-project
+      type: string
+      default: cps-demo
+    - description: Container Registry URL
+      name: container-registry-url
+      type: string
+      default: quay.io/yono
+    - description: Container Image name
+      name: container-image-name
+      type: string
+    - description: Container Image version
+      name: container-image-version
+      type: string
+      default: v1
+
+  tasks:
+    - name: git-clone-app
+      params:
+        - name: url
+          value: $(params.git-app-url)
+        - name: revision
+          value: $(params.git-app-revision)
+        - name: sslVerify
+          value: 'false'
+      taskRef:
+        kind: ClusterTask
+        name: git-clone
+      workspaces:
+        - name: output
+          workspace: app-workspace
+
+    - name: git-clone-manifests
+      taskRef:
+        kind: ClusterTask
+        name: git-clone
+      params:
+      - name: url
+        value: $(params.git-manifests-url)
+      - name: revision
+        value: $(params.git-manifests-revision)
+      - name: sslVerify
+        value: 'false'
+      workspaces:
+      - name: output
+        workspace: manifests-workspace
+
+    - name: build-container
+      params:
+        - name: CONTEXT
+          value: $(workspaces.source.path)/$(params.target-app-path)
+        - name: IMAGE
+          value: $(params.container-registry-url)/$(params.container-registry-project)/$(params.container-image-name):$(params.container-image-version)
+      runAfter:
+        - git-clone-app
+        - git-clone-manifests
+      taskRef:
+        kind: ClusterTask
+        name: buildah
+      workspaces:
+        - name: source
+          workspace: app-workspace
+
+    - name: update-manifests
+      params:
+        - name: KUSTOMIZE_SCRIPT
+          value: >
+            cd ./$(params.container-image-name)/overlays/dev
+
+            kustomize edit set image
+            ___IMAGE_URL___@___IMAGE_DIGEST___=$(params.container-registry-url)/$(params.container-registry-project)/$(params.container-image-name)@$(tasks.build-container.results.IMAGE_DIGEST)
+
+            cd ../stg
+
+            kustomize edit set image
+            ___IMAGE_URL___@___IMAGE_DIGEST___=$(params.container-registry-url)/$(params.container-registry-project)/$(params.container-image-name)@$(tasks.build-container.results.IMAGE_DIGEST)
+
+            cd ../prod
+
+            kustomize edit set image
+            ___IMAGE_URL___@___IMAGE_DIGEST___=$(params.container-registry-url)/$(params.container-registry-project)/$(params.container-image-name)@$(tasks.build-container.results.IMAGE_DIGEST)
+      runAfter:
+        - build-container
+      taskRef:
+        kind: Task
+        name: kustomize
+      workspaces:
+        - name: manifest-dir
+          workspace: manifests-workspace
+
+    - name: push-manifests
+      params:
+        - name: GIT_SCRIPT
+          value: |
+            cd $(workspaces.source.path)
+            export GIT_EMAIL=`cat /tekton/creds-secrets/gitlab-token/email`
+            export GIT_USERNAME=`cat /tekton/creds-secrets/gitlab-token/username`
+            export GIT_PASSWORD=`cat /tekton/creds-secrets/gitlab-token/password`
+            git config --global user.email ${GIT_EMAIL}
+            git config --global user.name ${GIT_USERNAME}
+            git config --global user.password ${GIT_PASSWORD}
+            git checkout $(params.git-manifests-revision)
+            git diff
+            git add -A ./$(params.container-image-name)/overlays/
+            git commit -a -m '[TEKTON-PIPELINES] Change container image'
+            git push
+      runAfter:
+        - update-manifests
+      taskRef:
+        kind: Task
+        name: git-cli
+      workspaces:
+        - name: source
+          workspace: manifests-workspace
+        - name: input
+          workspace: temp-dir
+
+  workspaces:
+    - description: Git Repo for Apps
+      name: app-workspace
+    - description: Git Repo for Manifests
+      name: manifests-workspace
+    - description: Temporary dir for git-cli Task
+      name: temp-dir
