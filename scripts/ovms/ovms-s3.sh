@@ -7,7 +7,7 @@ podman run --rm -u $(id -u) \
 	-e S3_ENDPOINT=http://192.168.3.101:31306 \
 	-p 9000:9000 \
 	registry.connect.redhat.com/intel/openvino-model-server:latest \
-	--model_name yolov8n \
-	--model_path s3://models/yolov8n \
+	--model_name demo \
+	--model_path s3://models/demo \
 	--port 9000 \
 	--shape auto

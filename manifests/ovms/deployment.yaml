@@ -25,9 +25,9 @@ spec:
         - "/ovms/bin/ovms"
         args:
         - "--model_name"
-        - yolov8n
+        - demo
         - "--model_path"
-        - s3://models/yolov8n
+        - s3://models/demo
         - "--port"
         - "9000"
         - "--shape"
