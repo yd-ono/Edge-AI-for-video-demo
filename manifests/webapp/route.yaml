@@ -1,13 +1,13 @@
 kind: Route
 apiVersion: route.openshift.io/v1
 metadata:
-  name: video
+  name: webapp
   labels:
-    app: video-ai
+    app: webapp
 spec:
   to:
     kind: Service
-    name: video-ai
+    name: webapp
     weight: 100
   port:
     targetPort: 5000-tcp

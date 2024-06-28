@@ -2,22 +2,22 @@ apiVersion: apps/v1
 kind: Deployment
 metadata:
   annotations:
-    app: video-ai
+    app: webapp
   labels:
-    app: video-ai
-  name: video-ai
+    app: webapp
+  name: webapp
 spec:
   replicas: 1
   selector:
     matchLabels:
-      app: video-ai
+      app: webapp
   strategy: {}
   template:
     metadata:
       annotations:
-        app: video-ai
+        app: webapp
       labels:
-        app: video-ai
+        app: webapp
         version: v1
     spec:
       containers:
@@ -29,7 +29,7 @@ spec:
           protocol: TCP
         envFrom:
           - configMapRef:
-              name: video-ai-app-config
+              name: webapp-config
         securityContext:
           privileged: true
       restartPolicy: Always
