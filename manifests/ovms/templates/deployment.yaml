@@ -1,0 +1,269 @@
+#
+# Copyright (c) 2020-2021 Intel Corporation
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#    http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+#
+
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ template "ovms.fullname" . }}
+  labels:
+    heritage: {{ .Release.Service | quote }}
+    release: {{ .Release.Name | quote }}
+    chart: {{ template "ovms.chart" . }}
+    app: {{ template "ovms.fullname" . }}
+spec:
+  selector:
+    matchLabels:
+      release: {{ .Release.Name | quote }}
+      app: {{ template "ovms.fullname" . }}
+  replicas: {{ .Values.deployment_parameters.replicas }}
+{{- if .Values.deployment_parameters.update_strategy }}
+  strategy:
+{{ toYaml  .Values.deployment_parameters.update_strategy | indent 4 }}
+{{- end }}  
+  template:
+    metadata:
+{{- if eq .Values.deployment_parameters.openshift_service_mesh true}}    
+      annotations:
+        sidecar.istio.io/inject: "true"
+{{- end }}
+      labels:
+        heritage: {{ .Release.Service | quote }}
+        release: {{ .Release.Name | quote }}
+        chart: {{ template "ovms.chart" . }}
+        app: {{ template "ovms.fullname" . }}
+    spec:
+{{- if or .Values.deployment_parameters.node_affinity .Values.deployment_parameters.pod_affinity .Values.deployment_parameters.pod_antiaffinity }}    
+      affinity:
+{{- end }}
+{{- if .Values.deployment_parameters.node_affinity }} 
+        nodeAffinity:
+{{ toYaml  .Values.deployment_parameters.node_affinity | indent 10 }}
+{{- end }}
+{{- if .Values.deployment_parameters.pod_affinity }}
+        podAffinity:
+{{ toYaml  .Values.deployment_parameters.pod_affinity | indent 10 }}
+{{- end }}
+{{- if .Values.deployment_parameters.pod_antiaffinity }}
+        podAntiAffinity:
+{{ toYaml  .Values.deployment_parameters.pod_antiaffinity | indent 10 }}
+{{- end }}
+      containers:
+      - name: ovms
+        image: {{ .Values.image_name }}
+        ports:
+        - containerPort: 8080
+          name: grpc
+        - containerPort: 8081
+          name: rest
+        livenessProbe:
+          httpGet:
+            path: /v2/health/live
+            port: rest
+        readinessProbe:
+          initialDelaySeconds: 5
+          periodSeconds: 5
+          httpGet:
+            path: /v2/health/ready
+            port: rest
+        {{- if or .Values.models_repository.gcp_creds_secret_name .Values.models_repository.aws_access_key_id .Values.models_repository.aws_secret_access_key .Values.models_repository.aws_region .Values.models_repository.s3_compat_api_endpoint .Values.models_repository.http_proxy .Values.models_repository.https_proxy .Values.models_repository.no_proxy .Values.models_repository.azure_storage_connection_string }}
+        env:
+        {{- end }}
+        {{- if .Values.models_repository.http_proxy }}
+        - name: http_proxy
+          value: {{ .Values.models_repository.http_proxy }}
+        {{- end }}
+        {{- if .Values.models_repository.https_proxy }}
+        - name: https_proxy
+          value: {{ .Values.models_repository.https_proxy }}
+        {{- end }}
+        {{- if .Values.models_repository.no_proxy }}
+        - name: no_proxy
+          value: {{ .Values.models_repository.no_proxy }}
+        {{- end }}
+        {{- if .Values.models_repository.gcp_creds_secret_name }}
+        - name: GOOGLE_APPLICATION_CREDENTIALS
+          value: /secret/gcp-creds.json
+        {{- end }}
+        {{- if .Values.models_repository.aws_access_key_id }}
+        - name: AWS_ACCESS_KEY_ID
+          value: {{ .Values.models_repository.aws_access_key_id }}
+        {{- end }}
+        {{- if .Values.models_repository.aws_secret_access_key }}
+        - name: AWS_SECRET_ACCESS_KEY
+          valueFrom:
+            secretKeyRef:
+              name: {{ template "ovms.fullname" . }}-aws-secret
+              key: secret_access_key
+        {{- end }}
+        {{- if .Values.models_repository.aws_region }}
+        - name: AWS_REGION
+          value: {{ .Values.models_repository.aws_region }}
+        {{- end }}
+        {{- if .Values.models_repository.s3_compat_api_endpoint }}
+        - name: S3_ENDPOINT
+          value: {{ .Values.models_repository.s3_compat_api_endpoint }}
+        {{- end }}
+        {{- if .Values.models_repository.azure_storage_connection_string }}
+        - name: AZURE_STORAGE_CONNECTION_STRING
+          valueFrom:
+            secretKeyRef:
+              name: {{ template "ovms.fullname" . }}-azure-secret
+              key: connection_string
+        {{- end }}
+        {{- if or .Values.deployment_parameters.extra_envs_secret .Values.deployment_parameters.extra_envs_configmap}}
+        envFrom:
+        {{- if .Values.deployment_parameters.extra_envs_secret }}
+          - secretRef:
+              name: {{ .Values.deployment_parameters.extra_envs_secret }}
+        {{- end }}
+        {{- if .Values.deployment_parameters.extra_envs_configmap }}
+          - configMapRef:
+              name: {{ .Values.deployment_parameters.extra_envs_configmap }}
+        {{- end }}
+        {{- end }}
+        args: [
+        {{- if eq .Values.models_settings.single_model_mode false }}
+          {{- if .Values.models_settings.config_path}}
+               "--config_path", "{{ .Values.models_settings.config_path }}",
+          {{- else }}
+               "--config_path", "/config/config.json",
+          {{- end }}
+        {{- else }}
+               "--model_path", "{{ .Values.models_settings.model_path }}",
+               "--model_name", "{{ .Values.models_settings.model_name }}",
+               "--target_device", "{{ .Values.models_settings.target_device }}",
+               {{- if .Values.models_settings.nireq }}
+               "--nireq", "{{ .Values.models_settings.nireq }}",
+               {{- end }}
+               {{- if .Values.models_settings.plugin_config }}
+               "--plugin_config", '{{ .Values.models_settings.plugin_config }}',
+               {{- end }}
+               {{- if .Values.models_settings.batch_size }}
+               "--batch_size", '{{ .Values.models_settings.batch_size }}',
+               {{- end }}
+               {{- if .Values.models_settings.layout }}
+                "--layout", '{{ .Values.models_settings.layout }}',
+               {{- end }}
+               {{- if .Values.models_settings.shape }}
+               "--shape", '{{ .Values.models_settings.shape }}',
+               {{- end }}
+               {{- if .Values.models_settings.model_version_policy }}
+               "--model_version_policy", '{{ .Values.models_settings.model_version_policy }}',
+               {{- end }}
+               {{- if eq .Values.models_settings.is_stateful true}}
+               "--stateful",
+               {{- if eq .Values.models_settings.idle_sequence_cleanup false }}
+               "--idle_sequence_cleanup=false",
+               {{- end }}
+               {{- if eq .Values.models_settings.low_latency_transformation true }}
+               "--low_latency_transformation",
+               {{- end }}
+               {{- if .Values.models_settings.max_sequence_number }}
+               "--max_sequence_number", '{{ .Values.models_settings.max_sequence_number }}',
+               {{- end }}
+               {{- end }}
+        {{- end }}
+               {{- if eq .Values.monitoring.metrics_enable true }}
+               "--metrics_enable",
+               {{- end }}
+               {{- if .Values.monitoring.metrics_list}}
+               "--metrics_list", '{{ .Values.monitoring.metrics_list }}',
+               {{- end }}        
+               "--log_level", "{{ .Values.server_settings.log_level }}",
+               "--file_system_poll_wait_seconds", "{{ .Values.server_settings.file_system_poll_wait_seconds }}",
+               {{- if .Values.server_settings.grpc_workers }}
+               "--grpc_workers", "{{ .Values.server_settings.grpc_workers }}",
+               {{- end }}
+               {{- if .Values.server_settings.rest_workers }}
+               "--rest_workers", "{{ .Values.server_settings.rest_workers }}",
+               {{- end }}
+               "--sequence_cleaner_poll_wait_minutes", "{{ .Values.server_settings.sequence_cleaner_poll_wait_minutes }}",
+               "--port", "8080",
+               "--rest_port", "8081"]
+        {{- if or .Values.models_repository.gcp_creds_secret_name .Values.models_settings.config_configmap_name .Values.models_repository.models_host_path .Values.models_repository.models_volume_claim}}
+        volumeMounts:
+        {{- end }}
+        {{- if .Values.models_repository.gcp_creds_secret_name }}
+        - name: gcpcreds
+          mountPath: "/secret"
+          readOnly: true
+        {{- end }}
+        {{- if .Values.models_settings.config_configmap_name }}
+        - name: config
+          mountPath: "/config"
+          readOnly: true
+        {{- end }}
+        {{- if or .Values.models_repository.models_host_path .Values.models_repository.models_volume_claim }}
+        - name: models
+          mountPath: "/models"
+          readOnly: true
+        {{- end }}
+{{- if or .Values.models_repository.runAsUser .Values.models_repository.runAsGroup }}
+        securityContext:
+{{- if .Values.models_repository.runAsUser }}
+          runAsUser: {{ .Values.models_repository.runAsUser  }}
+{{- end }}
+{{- if .Values.models_repository.runAsGroup }}
+          runAsGroup: {{ .Values.models_repository.runAsGroup  }}
+{{- end }}
+{{- end }}
+        resources:
+          limits:
+{{ if (((.Values.deployment_parameters.resources).limits).cpu) }}
+            cpu: "{{ .Values.deployment_parameters.resources.limits.cpu }}"
+{{- end }}
+{{ if (((.Values.deployment_parameters.resources).limits).memory) }}
+            memory: {{ .Values.deployment_parameters.resources.limits.memory }}
+{{- end }}
+{{ if (((.Values.deployment_parameters.resources).limits).xpu_device) }}
+            {{ .Values.deployment_parameters.resources.limits.xpu_device }}: "{{ .Values.deployment_parameters.resources.limits.xpu_device_quantity }}"
+{{- end }}
+          requests:
+{{ if (((.Values.deployment_parameters.resources).requests).cpu) }}
+            cpu: "{{ .Values.deployment_parameters.resources.requests.cpu }}"
+{{- end }}
+{{ if (((.Values.deployment_parameters.resources).requests).memory) }}
+            memory: {{ .Values.deployment_parameters.resources.requests.memory }}
+{{- end }}
+{{ if (((.Values.deployment_parameters.resources).requests).xpu_device) }}
+            {{ .Values.deployment_parameters.resources.requests.xpu_device }}: "{{ .Values.deployment_parameters.resources.requests.xpu_device_quantity }}"
+{{- end }}
+      {{- if or .Values.models_repository.gcp_creds_secret_name .Values.models_settings.config_configmap_name .Values.models_repository.models_volume_claim .Values.models_repository.models_host_path }}
+      volumes:
+      {{- end }}
+      {{- if .Values.models_repository.gcp_creds_secret_name }}
+      - name: gcpcreds
+        secret:
+          secretName: gcpcreds
+      {{- end }}
+      {{- if .Values.models_settings.config_configmap_name }}
+      - name: config
+        configMap:
+          name: {{ .Values.models_settings.config_configmap_name }}
+      {{- end }}
+      {{- if .Values.models_repository.models_host_path }}
+      - name: models
+        hostPath:
+          path: "{{ .Values.models_repository.models_host_path }}"
+          type: Directory
+      {{- end }}
+      {{- if and (.Values.models_repository.models_volume_claim) (eq .Values.models_repository.models_host_path "") }}
+      - name: models
+        persistentVolumeClaim:
+          claimName: {{ .Values.models_repository.models_volume_claim }}
+      {{- end }}
+
