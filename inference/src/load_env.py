@@ -16,6 +16,9 @@ def read_val_from_dotenv():
     OVMS_ENDPOINT = os.getenv('OVMS_ENDPOINT')
     MODEL_NAME = os.getenv('MODEL_NAME')
     DEVICE = os.getenv('DEVICE')
+    if DEVICE == '0':
+        DEVICE = 0
+
     PROTOCOL_BUFFERS_PYTHON_IMPLEMENTATION = os.getenv('PROTOCOL_BUFFERS_PYTHON_IMPLEMENTATION')
     PORT = os.getenv('PORT')
     CAPTURE_WAIT_TIME = os.getenv('CAPTURE_WAIT_TIME')
