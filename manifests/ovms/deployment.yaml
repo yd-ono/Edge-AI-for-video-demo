@@ -21,20 +21,31 @@ spec:
         version: v1
     spec:
       containers:
-      - image: registry.connect.redhat.com/intel/openvino-model-server:latest
-        imagePullPolicy: IfNotPresent
-        name: ovms
+      - command:
+        - "/ovms/bin/ovms"
         args:
-        - --model_name yolov8n
-        - --model_path s3://models/yolov8n
-        - --port 9000
-        - --shape auto
+        - "--model_name"
+        - yolov8n
+        - "--model_path"
+        - s3://models/yolov8n
+        - "--port"
+        - "9000"
+        - "--shape"
+        - auto
+        env:
+        - name: AWS_REGION
+          value: dummy
+        - name: AWS_ACCESS_KEY_ID
+          value: minio
+        - name: AWS_SECRET_ACCESS_KEY
+          value: minio123
+        - name: S3_ENDPOINT
+          value: http://minio-service:9000
+        image: registry.connect.redhat.com/intel/openvino-model-server:latest
+        name: ovms-container
         ports:
         - containerPort: 9000
           protocol: TCP
-        envFrom:
-          - secretRef:
-              name: aws-config
-        securityContext:
-          privileged: true
+        - containerPort: 9091
+          protocol: TCP
       restartPolicy: Always

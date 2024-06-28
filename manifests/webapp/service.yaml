@@ -1,9 +1,9 @@
 kind: Service
 apiVersion: v1
 metadata:
-  name: video-ai
+  name: webapp
   labels:
-    app: video-ai
+    app: webapp
 spec:
   type: NodePort
   ports:
@@ -13,4 +13,4 @@ spec:
       targetPort: 5000
       nodePort: 32280
   selector:
-    app: video-ai
+    app: webapp
