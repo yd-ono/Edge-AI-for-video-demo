@@ -4,7 +4,7 @@ metadata:
   name: webapp-config
 data:
   OVMS_ENDPOINT: "ovms:9000"
-  MODEL_NAME: "yolov8n"
+  MODEL_NAME: "demo"
   DEVICE: "/dev/video0"
   PROTOCOL_BUFFERS_PYTHON_IMPLEMENTATION: "python"
   PORT: "5000"
