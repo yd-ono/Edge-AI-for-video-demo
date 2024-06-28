@@ -30,6 +30,8 @@ spec:
         envFrom:
           - configMapRef:
               name: video-ai-app-config
+        securityContext:
+          privileged: true
       restartPolicy: Always
-      # serviceAccount: default
-      # serviceAccountName: default
+      serviceAccount: webapp
+      serviceAccountName: webapp

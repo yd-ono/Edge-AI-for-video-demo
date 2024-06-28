@@ -1,0 +1,40 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  annotations:
+    app: ovms
+  labels:
+    app: ovms
+  name: ovms
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: ovms
+  strategy: {}
+  template:
+    metadata:
+      annotations:
+        app: ovms
+      labels:
+        app: ovms
+        version: v1
+    spec:
+      containers:
+      - image: registry.connect.redhat.com/intel/openvino-model-server:latest
+        imagePullPolicy: IfNotPresent
+        name: ovms
+        args:
+        - --model_name yolov8n
+        - --model_path s3://models/yolov8n
+        - --port 9000
+        - --shape auto
+        ports:
+        - containerPort: 9000
+          protocol: TCP
+        envFrom:
+          - secretRef:
+              name: aws-config
+        securityContext:
+          privileged: true
+      restartPolicy: Always
