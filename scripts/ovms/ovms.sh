@@ -1,7 +1,7 @@
 #!/bin/bash
 
 podman run --rm -u $(id -u) \
--v $HOME/Edge-AI-for-video-demo/models:/models \
+-v $HOME/Documents/work/Edge-AI-for-video-demo/models:/models \
 -p 9000:9000 \
 registry.connect.redhat.com/intel/openvino-model-server:latest \
 --model_name demo \
