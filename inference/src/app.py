@@ -72,8 +72,9 @@ def predict_ovms_stream(camera):
             detections = ovms.detect(frame)[0]
             # バウンディングボックスを画像へ埋め込み
             detected_frame = ovms.draw_results(detections, frame, label_map)
-        except:
+        except Exception as e:
             log.info('gRPC connection has been lost. OVMS server has been down?')
+            logging.exception(e)
             detected_frame = frame
 
         # jpg形式へエンコード

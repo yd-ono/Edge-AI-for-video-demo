@@ -12,6 +12,7 @@ def read_val_from_dotenv():
     global PROTOCOL_BUFFERS_PYTHON_IMPLEMENTATION
     global PORT
     global CAPTURE_WAIT_TIME
+    global CONF
 
     OVMS_ENDPOINT = os.getenv('OVMS_ENDPOINT')
     MODEL_NAME = os.getenv('MODEL_NAME')
@@ -22,3 +23,4 @@ def read_val_from_dotenv():
     PROTOCOL_BUFFERS_PYTHON_IMPLEMENTATION = os.getenv('PROTOCOL_BUFFERS_PYTHON_IMPLEMENTATION')
     PORT = os.getenv('PORT')
     CAPTURE_WAIT_TIME = os.getenv('CAPTURE_WAIT_TIME')
+    CONF = float(os.getenv('CONF'))

@@ -55,6 +55,8 @@ def draw_results(results:Dict, source_image:np.ndarray, label_map:Dict):
     """
     boxes = results["det"]
     for idx, (*xyxy, conf, lbl) in enumerate(boxes):
+        if conf < load_env.CONF:
+            continue
         label = f'{label_map[int(lbl)]} {conf:.2f}'
         log.info(label)
         source_image = plot_one_box(xyxy, source_image, label=label, color=colors(int(lbl)), line_thickness=3)
