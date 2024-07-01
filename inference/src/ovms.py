@@ -1,10 +1,10 @@
 import ovmsclient
 import cv2
 from typing import Tuple, Dict
-from ultralytics.yolo.utils import ops
+from ultralytics.utils import ops
 import torch
 import numpy as np
-from ultralytics.yolo.utils.plotting import colors
+from ultralytics.utils.plotting import colors
 import random
 import logging
 import load_env

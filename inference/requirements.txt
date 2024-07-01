@@ -1,7 +1,7 @@
 flask
 opencv-python==4.10.0.84
-ultralytics==8.0.43
-ovmsclient==2023.1
-torch==2.3.1
+ultralytics==8.2.24
+ovmsclient
+torch>=2.1
 numpy==1.26.4
 python-dotenv==1.0.1
