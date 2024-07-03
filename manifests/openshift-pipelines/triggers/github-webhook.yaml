@@ -1,7 +1,0 @@
-kind: Secret
-apiVersion: v1
-metadata:
-  name: github-webhook
-data:
-  secretkey: ZGVtbw==
-type: Opaque

@@ -1,8 +1,0 @@
-apiVersion: triggers.tekton.dev/v1beta1
-kind: TriggerBinding
-metadata:
-  name: tekton-triggers-binding
-spec:
-  params:
-    - name: appname
-      value: $(body.commits[0].title)
