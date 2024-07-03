@@ -1,5 +1,0 @@
-train
-.gitignore
-.DS_Store
-models
-inference/.devcontainer
