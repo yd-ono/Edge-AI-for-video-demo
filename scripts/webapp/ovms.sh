@@ -3,8 +3,8 @@
 PROJECT_DIR="/Users/yono/Documents/work/Edge-AI-for-video-demo"
 
 podman run --rm -u $(id -u) \
--v $PROJECT_DIR/models:/models \
--p 9000:9000 \
+-v $HOME/Documents/work/Edge-AI-for-video-demo/models:/models \
+-p 5555:5000 \
 registry.connect.redhat.com/intel/openvino-model-server:latest \
 --model_name demo \
 --model_path /models/demo \
