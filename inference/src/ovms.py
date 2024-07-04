@@ -193,38 +193,6 @@ def postprocess(
 
     return results
 
-# def detect(image:np.ndarray):
-#     """
-#     OpenVINO YOLOv8モデル推論機能。画像を前処理し、モデル推論を実行し、NMSを使って結果を後処理する。
-#     パラメータ
-#         image (np.ndarray): 入力画像
-#     戻り値
-#         detections (np.ndarray): [x1, y1, x2, y2, score, label]の形式で検出されたボックス
-#     """
-
-#     # OVMSサーバとgRPC接続
-#     client = ovmsclient.make_grpc_client(load_env.OVMS_ENDPOINT)
-
-#     # モデルのメタデータからモデルへの入力形式を取得
-#     model_metadata = client.get_model_metadata(model_name=load_env.MODEL_NAME)
-
-#     # モデルに入力が1つしかない場合は、その名前を取得する。
-#     input_name = next(iter(model_metadata["inputs"]))
-
-#     # 入力画像を前処理
-#     preprocessed_image = preprocess_image(image)
-#     input_tensor = image_to_tensor(preprocessed_image)
-#     inputs = {input_name: input_tensor}
-
-#     # OVMSと接続してYolov8による物体検知を実行
-#     boxes = client.predict(inputs=inputs, model_name=load_env.MODEL_NAME)
-#     input_hw = input_tensor.shape[2:]
-
-#     # Yolov8の出力テンソルへ後処理を行い、元の画像サイズへスケールする
-#     detections = postprocess(pred_boxes=boxes, input_hw=input_hw, orig_img=image)
-
-#     return detections
-
 def detect(image:np.ndarray):
     """
     OpenVINO YOLOv8モデル推論機能。画像を前処理し、モデル推論を実行し、NMSを使って結果を後処理する。
@@ -235,10 +203,16 @@ def detect(image:np.ndarray):
     """
 
     # OVMSサーバとgRPC接続
-    client = ovmsclient.make_grpc_client(load_env.OVMS_ENDPOINT)
+    try:
+        client = ovmsclient.make_grpc_client(load_env.OVMS_ENDPOINT)
+    except Exception as e:
+        log.error(e)
 
     # モデルのメタデータからモデルへの入力形式を取得
-    model_metadata = client.get_model_metadata(model_name=load_env.MODEL_NAME)
+    try:
+        model_metadata = client.get_model_metadata(model_name=load_env.MODEL_NAME, timeout=load_env.OVMS_CLIENT_TIMEOUT)
+    except Exception as e:
+        log.error(e)
 
     # モデルに入力が1つしかない場合は、その名前を取得する。
     input_name = next(iter(model_metadata["inputs"]))
@@ -248,8 +222,11 @@ def detect(image:np.ndarray):
     inputs = {input_name: input_tensor}
     input_hw = preprocessed_image.shape[:2]
 
-    # OVMSと接続してYolov8による物体検知を実行
-    boxes = client.predict(inputs=inputs, model_name=load_env.MODEL_NAME)
+    try:
+        # OVMSと接続してYolov8による物体検知を実行
+        boxes = client.predict(inputs=inputs, model_name=load_env.MODEL_NAME,timeout=load_env.OVMS_CLIENT_TIMEOUT)
+    except Exception as e:
+        log.error(e)
 
     # Yolov8の出力テンソルへ後処理を行い、元の画像サイズへスケールする
     detections = postprocess(pred_boxes=boxes, input_hw=input_hw, orig_img=image)
