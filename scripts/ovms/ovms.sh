@@ -9,5 +9,7 @@ registry.connect.redhat.com/intel/openvino-model-server:latest \
 --model_name demo \
 --model_path /models/demo \
 --port 9000 \
+--rest_port 9090 \
+--metrics_enabled \
 --target_device CPU \
 --shape auto
