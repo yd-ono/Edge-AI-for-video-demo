@@ -6,6 +6,7 @@ from camera import Camera
 # from ultralytics import YOLO
 import ovms
 import yaml
+import time
 
 # Loggerを初期化
 logging.basicConfig(format="%(asctime)s - %(levelname)s - %(message)s",
@@ -83,6 +84,8 @@ def predict_ovms_stream(camera):
                 b"Content-Type: image/jpeg\r\n\r\n" + annotated_frame.tobytes() + b"\r\n")
         else:
             log.error("frame is none")
+
+        time.sleep(load_env.FPS)
 
 @app.route("/video_feed")
 def video_feed():
