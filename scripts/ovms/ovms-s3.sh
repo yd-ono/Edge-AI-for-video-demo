@@ -12,4 +12,6 @@ podman run --rm -u $(id -u) \
 	--model_name demo \
 	--model_path s3://models/demo \
 	--port 9000 \
+	--rest_port 9090 \
+	--metrics_enabled \
 	--shape auto
