@@ -11,6 +11,7 @@ def read_val_from_dotenv():
     global DEVICE
     global PROTOCOL_BUFFERS_PYTHON_IMPLEMENTATION
     global FPS
+    global OVMS_CLIENT_TIMEOUT
     global PORT
     global CAPTURE_WAIT_TIME
     global CONF
@@ -22,6 +23,7 @@ def read_val_from_dotenv():
         DEVICE = 0
 
     FPS = float(os.getenv('FPS'))
+    OVMS_CLIENT_TIMEOUT = float(os.getenv('OVMS_CLIENT_TIMEOUT'))
     PROTOCOL_BUFFERS_PYTHON_IMPLEMENTATION = os.getenv('PROTOCOL_BUFFERS_PYTHON_IMPLEMENTATION')
     PORT = os.getenv('PORT')
     CAPTURE_WAIT_TIME = os.getenv('CAPTURE_WAIT_TIME')
