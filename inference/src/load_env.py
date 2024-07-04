@@ -10,6 +10,7 @@ def read_val_from_dotenv():
     global MODEL_NAME
     global DEVICE
     global PROTOCOL_BUFFERS_PYTHON_IMPLEMENTATION
+    global FPS
     global PORT
     global CAPTURE_WAIT_TIME
     global CONF
@@ -20,6 +21,7 @@ def read_val_from_dotenv():
     if DEVICE == '0':
         DEVICE = 0
 
+    FPS = float(os.getenv('FPS'))
     PROTOCOL_BUFFERS_PYTHON_IMPLEMENTATION = os.getenv('PROTOCOL_BUFFERS_PYTHON_IMPLEMENTATION')
     PORT = os.getenv('PORT')
     CAPTURE_WAIT_TIME = os.getenv('CAPTURE_WAIT_TIME')
