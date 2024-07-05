@@ -102,12 +102,12 @@ def predict_ovms_feed():
     return Response(predict_ovms_stream(Camera()),
             mimetype="multipart/x-mixed-replace; boundary=frame")
 
-# @app.route("/save_image")
-# def save_image():
-#     frame = Camera().get_frame(wait=True)
-#     _, buffer = cv2.imencode('.jpg', frame)
+@app.route("/save_image")
+def save_image():
+    frame = Camera().get_frame(wait=True)
+    _, buffer = cv2.imencode('.jpg', frame)
 
-#     return Response(buffer.tobytes(), mimetype='image/jpeg')
+    return Response(buffer.tobytes(), mimetype='image/jpeg')
 
 if __name__ == "__main__":
     app.debug = True
