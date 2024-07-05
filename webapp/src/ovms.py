@@ -203,16 +203,10 @@ def detect(image:np.ndarray):
     """
 
     # OVMSサーバとgRPC接続
-    try:
-        client = ovmsclient.make_grpc_client(load_env.OVMS_ENDPOINT)
-    except Exception as e:
-        log.error(e)
+    client = ovmsclient.make_grpc_client(load_env.OVMS_ENDPOINT)
 
     # モデルのメタデータからモデルへの入力形式を取得
-    try:
-        model_metadata = client.get_model_metadata(model_name=load_env.MODEL_NAME, timeout=load_env.OVMS_CLIENT_TIMEOUT)
-    except Exception as e:
-        log.error(e)
+    model_metadata = client.get_model_metadata(model_name=load_env.MODEL_NAME, timeout=load_env.OVMS_CLIENT_TIMEOUT)
 
     # モデルに入力が1つしかない場合は、その名前を取得する。
     input_name = next(iter(model_metadata["inputs"]))
@@ -222,13 +216,8 @@ def detect(image:np.ndarray):
     inputs = {input_name: input_tensor}
     input_hw = preprocessed_image.shape[:2]
 
-    try:
-        # OVMSと接続してYolov8による物体検知を実行
-        boxes = client.predict(inputs=inputs, model_name=load_env.MODEL_NAME,timeout=load_env.OVMS_CLIENT_TIMEOUT)
-    except Exception as e:
-        log.error(e)
-
+    # OVMSと接続してYolov8による物体検知を実行
+    boxes = client.predict(inputs=inputs, model_name=load_env.MODEL_NAME,timeout=load_env.OVMS_CLIENT_TIMEOUT)
     # Yolov8の出力テンソルへ後処理を行い、元の画像サイズへスケールする
     detections = postprocess(pred_boxes=boxes, input_hw=input_hw, orig_img=image)
-
     return detections
