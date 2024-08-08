@@ -16,14 +16,9 @@ log = logging.getLogger(__name__)
 
 load_env.read_val_from_dotenv()
 
-
-def plot_one_box(
-    box: np.ndarray,
-    img: np.ndarray,
-    color: Tuple[int, int, int] = None,
-    label: str = None,
-    line_thickness: int = 5,
-):
+def plot_one_box(box:np.ndarray, img:np.ndarray,
+                 color:Tuple[int, int, int] = None,
+                 label:str = None, line_thickness:int = 5):
     """
     画像上に単一のバウンディングボックスを描画するヘルパー関数
     パラメータ
@@ -43,29 +38,32 @@ def plot_one_box(
         t_size = cv2.getTextSize(label, 0, fontScale=tl / 3, thickness=tf)[0]
         c2 = c1[0] + t_size[0], c1[1] - t_size[1] - 3
         cv2.rectangle(img, c1, c2, color, -1, cv2.LINE_AA)  # filled
-        cv2.putText(
-            img,
-            label,
-            (c1[0], c1[1] - 2),
-            0,
-            tl / 3,
-            [225, 255, 255],
-            thickness=tf,
-            lineType=cv2.LINE_AA,
-        )
+        cv2.putText(img, label, (c1[0], c1[1] - 2), 0, tl / 3, [225, 255, 255], thickness=tf, lineType=cv2.LINE_AA)
 
     return img
 
 
-def letterbox(
-    img: np.ndarray,
-    new_shape: Tuple[int, int] = (640, 640),
-    color: Tuple[int, int, int] = (114, 114, 114),
-    auto: bool = False,
-    scale_fill: bool = False,
-    scaleup: bool = False,
-    stride: int = 32,
-):
+def draw_results(results:Dict, source_image:np.ndarray, label_map:Dict):
+    """
+    画像にバウンディングボックスを描画するヘルパー関数
+    パラメータ
+        image_res (np.ndarray): [x1, y1, x2, y2, score, label_id] 形式の検出予測値。
+        source_image (np.ndarray): 描画用の入力画像
+        label_map; (Dict[int, str]): label_id からクラス名へのマッピング
+    戻り値
+        ボックスを含む画像
+    """
+    boxes = results["det"]
+    for idx, (*xyxy, conf, lbl) in enumerate(boxes):
+        if conf < load_env.CONF:
+            continue
+        label = f'{label_map[int(lbl)]} {conf:.2f}'
+        log.info(label)
+        source_image = plot_one_box(xyxy, source_image, label=label, color=colors(int(lbl)), line_thickness=3)
+    return source_image
+
+
+def letterbox(img: np.ndarray, new_shape:Tuple[int, int] = (640, 640), color:Tuple[int, int, int] = (114, 114, 114), auto:bool = False, scale_fill:bool = False, scaleup:bool = False, stride:int = 32):
     """
     画像サイズと検出用パディングを変更する。画像を入力として受け取る、
     元のアスペクト比を保ったまま新しい形状に収まるように画像をリサイズし，ストライド多重制約を満たすようにパディングする。
@@ -113,16 +111,54 @@ def letterbox(
     img = cv2.copyMakeBorder(img, top, bottom, left, right, cv2.BORDER_CONSTANT, value=color)  # add border
     return img, ratio, (dw, dh)
 
+## 事前処理
+def preprocess_image(img0: np.ndarray):
+    """
+    YOLOv8の入力要件に従って画像を前処理する。
+    np.arrayフォーマットの画像を受け取り、レターボックスリサイズを使って特定のサイズにリサイズし、データレイアウトをHWCからCHWに変更する。
+
+    パラメータ
+      img0 (np.ndarray): 前処理用画像
+    戻り値
+      img (np.ndarray): 前処理後の画像
+    """
+    # resize
+    img = letterbox(img0)[0]
+
+    # Convert HWC to CHW
+    img = img.transpose(2, 0, 1)
+    img = np.ascontiguousarray(img)
+    return img
+
+## 画像をテンソルへ変換
+def image_to_tensor(image:np.ndarray):
+    """
+    YOLOv8の入力要件に従って画像を前処理する。
+    np.arrayフォーマットの画像を受け取り、レターボックスリサイズを使って特定のサイズにリサイズし、データレイアウトをHWCからCHWに変更する。
+
+    パラメータ
+      img (np.ndarray): 前処理用画像
+    戻り値
+      input_tensor (np.ndarray): [0, 1] の範囲の float32 値を持つ NCHW 形式の入力テンソル
+    """
+    input_tensor = image.astype(np.float32)  # uint8 to fp32
+    input_tensor /= 255.0  # 0 - 255 to 0.0 - 1.0
+
+    # add batch dimension
+    if input_tensor.ndim == 3:
+        input_tensor = np.expand_dims(input_tensor, 0)
+    return input_tensor
+
 
 ## 後処理
 def postprocess(
-    pred_boxes: np.ndarray,
-    input_hw: Tuple[int, int],
-    orig_img: np.ndarray,
-    min_conf_threshold: float = 0.25,
-    nms_iou_threshold: float = 0.7,
-    agnosting_nms: bool = False,
-    max_detections: int = 300,
+    pred_boxes:np.ndarray,
+    input_hw:Tuple[int, int],
+    orig_img:np.ndarray,
+    min_conf_threshold:float = 0.25,
+    nms_iou_threshold:float = 0.7,
+    agnosting_nms:bool = False,
+    max_detections:int = 300,
 ):
     """
     YOLOv8モデルの後処理機能。検出された画像に非最大圧縮アルゴリズムを適用し、元の画像サイズにボックスを再スケールする。
@@ -137,8 +173,14 @@ def postprocess(
     戻り値
        pred (List[Dict[str, np.ndarray]]): [x1, y1, x2, y2, score, label]のフォーマットで検出されたボックスを含む辞書のリスト
     """
-    nms_kwargs = {"agnostic": agnosting_nms, "max_det": max_detections}
-    preds = ops.non_max_suppression(torch.from_numpy(pred_boxes), min_conf_threshold, nms_iou_threshold, nc=80, **nms_kwargs)
+    nms_kwargs = {"agnostic": agnosting_nms, "max_det":max_detections}
+    preds = ops.non_max_suppression(
+        torch.from_numpy(pred_boxes),
+        min_conf_threshold,
+        nms_iou_threshold,
+        nc=80,
+        **nms_kwargs
+    )
 
     results = []
     for i, pred in enumerate(preds):
@@ -179,23 +221,3 @@ def detect(image:np.ndarray):
     # Yolov8の出力テンソルへ後処理を行い、元の画像サイズへスケールする
     detections = postprocess(pred_boxes=boxes, input_hw=input_hw, orig_img=image)
     return detections
-
-
-def draw_results(results:Dict, source_image:np.ndarray, label_map:Dict):
-    """
-    画像にバウンディングボックスを描画するヘルパー関数
-    パラメータ
-        image_res (np.ndarray): [x1, y1, x2, y2, score, label_id] 形式の検出予測値。
-        source_image (np.ndarray): 描画用の入力画像
-        label_map; (Dict[int, str]): label_id からクラス名へのマッピング
-    戻り値
-        ボックスを含む画像
-    """
-    boxes = results["det"]
-    for idx, (*xyxy, conf, lbl) in enumerate(boxes):
-        if conf < load_env.CONF:
-            continue
-        label = f'{label_map[int(lbl)]} {conf:.2f}'
-        log.info(label)
-        source_image = plot_one_box(xyxy, source_image, label=label, color=colors(int(lbl)), line_thickness=3)
-    return source_image
