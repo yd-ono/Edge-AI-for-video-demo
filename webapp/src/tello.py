@@ -1,6 +1,11 @@
 import socket
 import threading
 import logging
+import time
+import load_env
+
+
+load_env.read_val_from_dotenv()
 
 # Loggerを初期化
 logging.basicConfig(format="%(asctime)s - %(levelname)s - %(message)s",
@@ -24,10 +29,12 @@ class Tello(object):
         # 'command' コマンドを送信
         message = 'command'
         self.sock.sendto(message.encode(), self.server_address)
+        time.sleep(load_env.TELLO_INIT_WAIT_TIME)
 
         # 'streamon' コマンドを送信
         message = 'streamon'
         self.sock.sendto(message.encode(), self.server_address)
+        time.sleep(load_env.TELLO_STREAM_WAIT_TIME)
 
     def __del__(self):
         # 'streamoff' コマンドを送信

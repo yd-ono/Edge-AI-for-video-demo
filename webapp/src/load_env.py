@@ -15,6 +15,9 @@ def read_val_from_dotenv():
     global PORT
     global CAPTURE_WAIT_TIME
     global CONF
+    global DRONE_VIDEO
+    global TELLO_INIT_WAIT_TIME
+    global TELLO_STREAM_WAIT_TIME
 
     OVMS_ENDPOINT = os.getenv('OVMS_ENDPOINT')
     MODEL_NAME = os.getenv('MODEL_NAME')
@@ -28,3 +31,6 @@ def read_val_from_dotenv():
     PORT = os.getenv('PORT')
     CAPTURE_WAIT_TIME = os.getenv('CAPTURE_WAIT_TIME')
     CONF = float(os.getenv('CONF'))
+    DRONE_VIDEO = int(os.getenv('DRONE_VIDEO'))
+    TELLO_INIT_WAIT_TIME = int(os.getenv('TELLO_INIT_WAIT_TIME'))
+    TELLO_STREAM_WAIT_TIME = int(os.getenv('TELLO_STREAM_WAIT_TIME'))
