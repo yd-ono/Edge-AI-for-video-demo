@@ -20,15 +20,13 @@ app = Flask(__name__, static_folder='./templates/images')
 
 @app.route("/")
 def index():
+    Tello()
     return render_template("stream.html")
 
-@app.route("/stream")
-def stream():
-    return render_template("stream.html")
-
-@app.route("/predict_ovms")
-def predict_ovms():
-    return render_template("predict_ovms.html")
+@app.route("/predict")
+def predict():
+    Tello()
+    return render_template("predict.html")
 
 def normal_stream(camera):
     while True:
@@ -40,7 +38,7 @@ def normal_stream(camera):
         else:
             log.error("frame is none")
 
-def predict_ovms_stream(camera):
+def predict_stream(camera):
     # ラベルマップを取得
     with open('coco.yaml', 'r') as yml:
         config = yaml.safe_load(yml)
@@ -70,14 +68,12 @@ def predict_ovms_stream(camera):
 
 @app.route("/video_feed")
 def video_feed():
-    Tello()
     return Response(normal_stream(Camera()),
             mimetype="multipart/x-mixed-replace; boundary=frame")
 
-@app.route("/predict_ovms_feed")
-def predict_ovms_feed():
-    Tello()
-    return Response(predict_ovms_stream(Camera()),
+@app.route("/predict_feed")
+def predict_feed():
+    return Response(predict_stream(Camera()),
             mimetype="multipart/x-mixed-replace; boundary=frame")
 
 ## デモ用のコード
