@@ -13,6 +13,9 @@ class Camera(object):
     def __del__(self):
         self.video.release()
 
+    def __del__(self):
+        self.video.release()
+
     def get_frame(self, wait=False):
         if wait:
             time.sleep(int(load_env.CAPTURE_WAIT_TIME))

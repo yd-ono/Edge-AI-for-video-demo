@@ -5,6 +5,6 @@
 
 なお、Yolov8モデルをOpenVINO IRへの変換、およびFP32からInt8への量子化は以下のノートブックを使用して出力しています。
 
-[リアルタイム物体検知](https://docs.openvino.ai/2024/notebooks/yolov8-object-detection-with-output.html)
+[OpenVINO形式のYolov8モデルの最適化](https://github.com/openvinotoolkit/openvino_notebooks/blob/2023.3/notebooks/230-yolov8-optimization/230-yolov8-object-detection.ipynb)
 
 マニフェストディレクトリは[こちら](https://github.com/yd-ono/Edge-AI-for-video-demo-manifests)
