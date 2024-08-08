@@ -3,6 +3,7 @@ import logging
 import cv2
 from flask import Flask, render_template, Response
 from camera import Camera
+from tello import Tello
 # from ultralytics import YOLO
 import ovms
 import yaml
@@ -15,9 +16,6 @@ log = logging.getLogger(__name__)
 
 load_env.read_val_from_dotenv()
 
-# 学習済みのモデルをロード
-# model = YOLO('models/pytorch/yolov8n.pt')
-
 app = Flask(__name__, static_folder='./templates/images')
 
 @app.route("/")
@@ -27,10 +25,6 @@ def index():
 @app.route("/stream")
 def stream():
     return render_template("stream.html")
-
-# @app.route("/predict")
-# def predict():
-#     return render_template("predict.html")
 
 @app.route("/predict_ovms")
 def predict_ovms():
@@ -45,19 +39,6 @@ def normal_stream(camera):
                 b"Content-Type: image/jpeg\r\n\r\n" + frame.tobytes() + b"\r\n")
         else:
             log.error("frame is none")
-
-# def predict_stream(camera):
-#     while True:
-#         frame = camera.get_frame()
-#         results = model.predict(frame)
-#         annotated_frame = results[0].plot()
-#         _, annotated_frame = cv2.imencode('.jpg', annotated_frame)
-
-#         if annotated_frame is not None:
-#             yield (b"--frame\r\n"
-#                 b"Content-Type: image/jpeg\r\n\r\n" + annotated_frame.tobytes() + b"\r\n")
-#         else:
-#             log.error("frame is none")
 
 def predict_ovms_stream(camera):
     # ラベルマップを取得
@@ -89,19 +70,17 @@ def predict_ovms_stream(camera):
 
 @app.route("/video_feed")
 def video_feed():
+    Tello()
     return Response(normal_stream(Camera()),
             mimetype="multipart/x-mixed-replace; boundary=frame")
 
-# @app.route("/predict_feed")
-# def predict_feed():
-#     return Response(predict_stream(Camera()),
-#             mimetype="multipart/x-mixed-replace; boundary=frame")
-
 @app.route("/predict_ovms_feed")
 def predict_ovms_feed():
+    Tello()
     return Response(predict_ovms_stream(Camera()),
             mimetype="multipart/x-mixed-replace; boundary=frame")
 
+## デモ用のコード
 # @app.route("/save_image")
 # def save_image():
 #     frame = Camera().get_frame(wait=True)
