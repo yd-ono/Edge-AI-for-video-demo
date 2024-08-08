@@ -20,12 +20,14 @@ app = Flask(__name__, static_folder='./templates/images')
 
 @app.route("/")
 def index():
-    Tello()
+    if load_env.DRONE_VIDEO == 1:
+        Tello()
     return render_template("stream.html")
 
 @app.route("/predict")
 def predict():
-    Tello()
+    if load_env.DRONE_VIDEO == 1:
+        Tello()
     return render_template("predict.html")
 
 def normal_stream(camera):
