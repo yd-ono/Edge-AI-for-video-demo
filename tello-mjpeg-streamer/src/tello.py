@@ -31,7 +31,7 @@ class Tello(object):
         time.sleep(2)
         self.sock_cm.sendto('streamon'.encode('utf-8'), TELLO_ADDRESS)
 
-        time.sleep(5)
+        time.sleep(2)
         self.video = cv2.VideoCapture("udp://%s:%s?overrun_nonfatal=1&fifo_size=50000000" % TELLO_VIDEO_ADDRESS)
 
     def __del__(self):
