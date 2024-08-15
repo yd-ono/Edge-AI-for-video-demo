@@ -10,6 +10,7 @@ load_env.read_val_from_dotenv()
 class Camera(object):
     def __init__(self):
         self.video = cv2.VideoCapture(load_env.DEVICE)
+        self.video.open(load_env.DEVICE)
 
     def __del__(self):
         self.video.release()

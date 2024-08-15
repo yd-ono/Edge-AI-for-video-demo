@@ -1,4 +1,4 @@
-FROM registry.access.redhat.com/ubi9/ubi-minimal:latest as builder
+FROM registry.access.redhat.com/ubi9/ubi-minimal:latest
 # USER root
 
 WORKDIR /app

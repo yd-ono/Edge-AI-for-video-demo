@@ -3,7 +3,6 @@ import logging
 import cv2
 from flask import Flask, render_template, Response
 from camera import Camera
-from tello import Tello
 # from ultralytics import YOLO
 import ovms
 import yaml
@@ -20,14 +19,10 @@ app = Flask(__name__, static_folder='./templates/images')
 
 @app.route("/")
 def index():
-    if load_env.DRONE_VIDEO == 1:
-        Tello()
     return render_template("stream.html")
 
 @app.route("/predict")
 def predict():
-    if load_env.DRONE_VIDEO == 1:
-        Tello()
     return render_template("predict.html")
 
 def normal_stream(camera):
