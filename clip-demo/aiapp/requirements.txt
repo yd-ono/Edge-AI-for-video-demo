@@ -5,5 +5,7 @@ numpy
 torch
 transformers
 paho-mqtt
-ovmsclient
 jinja2
+ovmsclient
+Pillow
+httpx

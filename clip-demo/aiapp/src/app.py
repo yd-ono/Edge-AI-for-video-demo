@@ -4,13 +4,12 @@ import numpy as np
 import os
 import json
 from fastapi import FastAPI, Request
-from fastapi.responses import HTMLResponse, StreamingResponse
+from fastapi.responses import HTMLResponse, StreamingResponse, Response
 from fastapi.templating import Jinja2Templates
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 from transformers import CLIPTokenizer
 from ovmsclient import make_grpc_client
-import uvicorn
 import concurrent.futures
 import threading
 import queue
@@ -19,6 +18,12 @@ import time
 import paho.mqtt.client as mqtt
 from PIL import Image, ImageDraw, ImageFont
 import glob
+import asyncio
+import signal
+import sys
+import os
+from uvicorn import Config, Server
+from starlette.background import BackgroundTask
 
 # ==== 環境変数設定 ====
 MODEL_NAME = os.getenv("MODEL_NAME", "demo")
@@ -29,24 +34,19 @@ INFERENCE_BATCH_SIZE = int(os.getenv("INFERENCE_BATCH_SIZE", "4"))
 FRAME_BUFFER_SIZE = int(os.getenv("FRAME_BUFFER_SIZE", "2"))
 INFERENCE_INTERVAL = float(os.getenv("INFERENCE_INTERVAL", "0.1"))
 LOG_LEVEL = os.getenv("LOG_LEVEL", "INFO")
-
-# ==== MQTT設定 ====
 MQTT_BROKER = os.getenv("MQTT_BROKER", "localhost")
 MQTT_PORT = int(os.getenv("MQTT_PORT", "1883"))
 MQTT_TOPIC = os.getenv("MQTT_TOPIC", "clip/result")
 MQTT_QOS = int(os.getenv("MQTT_QOS", "1"))
 MQTT_RETAIN = True
 
-# ==== ログ設定 ====
 logging.basicConfig(level=getattr(logging, LOG_LEVEL))
 log = logging.getLogger("clip-app")
 
-# ==== FastAPI初期化 ====
 app = FastAPI(title="CLIP分類アプリ")
 templates = Jinja2Templates(directory="templates")
 app.mount("/static", StaticFiles(directory="static"), name="static")
 
-# ==== グローバル変数 ====
 current_labels = LABELS.copy()
 client = None
 tokenizer = None
@@ -55,9 +55,28 @@ score_lock = threading.Lock()
 latest_scores = np.zeros(len(current_labels))
 frame_queue = queue.Queue(maxsize=FRAME_BUFFER_SIZE)
 is_processing = False
-
 mqtt_client = None
 mqtt_connected = False
+shutdown_event = threading.Event()
+
+class Camera:
+    def __init__(self, source=0):
+        self.source = source
+        self.cap = cv2.VideoCapture(self.source)
+        if not self.cap.isOpened():
+            raise RuntimeError(f"カメラソース({self.source})を開けません")
+
+    def read(self):
+        ret, frame = self.cap.read()
+        if not ret:
+            raise RuntimeError("カメラからフレームを取得できません")
+        return frame
+
+    def release(self):
+        if self.cap:
+            self.cap.release()
+
+camera = Camera(CAMERA_SOURCE)
 
 # ==== MQTT処理 ====
 # MQTT接続時のコールバック
@@ -166,17 +185,18 @@ def process_frames():
                     # スコアを最新のものに更新
                     latest_scores = scores_batch[0]
 
-                    # スコアを正規化
-                    max_index = int(np.argmax(latest_scores))
-                    # スコアが0.5以上のものを取得
-                    max_label = current_labels[max_index]
-                    max_score = float(latest_scores[max_index])
-                    message = json.dumps({"label": max_label, "score": round(max_score, 4)})
+                    # すべてのラベルとスコアをJSON形式で作成
+                    label_score_pairs = [
+                        {"name": label, "score": round(float(score), 4)}
+                        for label, score in zip(current_labels, latest_scores)
+                    ]
+                    message = json.dumps({"labels": label_score_pairs}, ensure_ascii=False)
+
                     # 推論結果をMQTTで送信
                     if mqtt_client and mqtt_connected:
                         try:
-                            message = json.dumps({"label": max_label, "score": round(max_score, 4)}, ensure_ascii=False)
-                            mqtt_client.publish(MQTT_TOPIC, payload=message.encode('utf-8'), qos=MQTT_QOS, retain=MQTT_RETAIN)
+                            mqtt_client.publish(MQTT_TOPIC, payload=message.encode('utf-8'),
+                                                qos=MQTT_QOS, retain=MQTT_RETAIN)
                             log.debug(f"MQTT Publish: {message}")
                         except Exception as e:
                             log.warning(f"MQTT Publish失敗（継続）: {e}")
@@ -249,48 +269,40 @@ def ensure_scores(scores, labels):
             return np.zeros(len(labels))
         return scores.copy()
 
+shutdown_event = threading.Event()
+
 # フレーム生成器
 def frame_generator():
     global latest_scores
-    cap = cv2.VideoCapture(CAMERA_SOURCE)
-    if not cap.isOpened():
-        raise RuntimeError("カメラを開けません")
-
     last_infer_time = 0
     fps_counter, fps_timer, current_fps = 0, time.time(), 0
 
     try:
-        while True:
-            ret, frame = cap.read()
-            if not ret:
-                continue
-
-            # フレームのリサイズ
+        while not shutdown_event.is_set():
+            frame = camera.read()
             fps_counter += 1
             if time.time() - fps_timer > 1.0:
                 current_fps = fps_counter
                 fps_counter, fps_timer = 0, time.time()
-
-            # フレームの色空間変換
             if not frame_queue.full():
                 frame_queue.put_nowait(frame.copy())
-
-            # 推論処理のトリガー
             if time.time() - last_infer_time > INFERENCE_INTERVAL:
                 executor.submit(process_frames)
                 last_infer_time = time.time()
-
-            # スコアの取得
             scores = ensure_scores(latest_scores, current_labels)
             annotated = draw_score_bar(frame.copy(), scores, current_labels)
-            cv2.putText(annotated, f"FPS: {current_fps}", (10, annotated.shape[0] - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 0, 255), 2)
+            cv2.putText(annotated, f"FPS: {current_fps}", (10, annotated.shape[0] - 10),
+                        cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 0, 255), 2)
             _, buffer = cv2.imencode(".jpg", annotated, [int(cv2.IMWRITE_JPEG_QUALITY), 80])
             yield (b"--frame\r\nContent-Type: image/jpeg\r\n\r\n" + buffer.tobytes() + b"\r\n")
-
             time.sleep(0.01)
+    except GeneratorExit:
+        log.info("frame_generator: クライアント接続が閉じられました")
+    except Exception as e:
+        log.warning(f"frame_generator: 例外発生 {e}")
     finally:
-        log.info("シャットダウン中: カメラを解放します")
-        cap.release()
+        log.info("frame_generator: ストリーム終了処理中")
+
 
 # ==== APIエンドポイント ====
 # トップページ
@@ -311,11 +323,37 @@ def set_labels(label_update: LabelUpdate):
     return {"status": "ok", "labels": current_labels}
 
 # ==== カメラソース取得 ====
+from starlette.background import BackgroundTask
+
 @app.get("/video_feed")
 def video_feed():
-    return StreamingResponse(frame_generator(), media_type="multipart/x-mixed-replace; boundary=frame")
+    def close_log():
+        log.info("video_feed: ストリーム接続が切断されました")
+    return StreamingResponse(frame_generator(),
+        media_type="multipart/x-mixed-replace; boundary=frame",
+        background=BackgroundTask(close_log)
+    )
 
-# ヘルスチェック
+
+# ==== スナップショット ====
+@app.get("/snapshot")
+def snapshot():
+    try:
+        frame = camera.read()
+        scores = ensure_scores(latest_scores, current_labels)
+        annotated = draw_score_bar(frame.copy(), scores, current_labels)
+        _, buffer = cv2.imencode(".jpg", annotated, [int(cv2.IMWRITE_JPEG_QUALITY), 90])
+        return Response(content=buffer.tobytes(), media_type="image/jpeg")
+    except Exception as e:
+        log.error(f"/snapshot 取得失敗: {e}")
+        return Response(content=str(e), status_code=500)
+
+@app.get("/get_labels")
+def get_labels():
+    return {"labels": current_labels}
+
+
+# ==== ヘルスチェック ====
 @app.get("/health")
 def health():
     return {
@@ -323,20 +361,55 @@ def health():
         "mqtt_status": "connected" if mqtt_connected else "disconnected"
     }
 
+# ==== アプリケーション起動 ====
 @app.on_event("startup")
 async def startup():
     initialize_model()
     setup_mqtt()
 
+# ==== アプリケーションシャットダウン ====
 @app.on_event("shutdown")
 async def shutdown():
-    global executor
     log.info("アプリケーションシャットダウン: スレッドプール停止中")
+    shutdown_event.set()
     if executor:
         executor.shutdown(wait=False)
     if mqtt_client:
         mqtt_client.loop_stop()
         mqtt_client.disconnect()
+    if camera:
+        camera.release()
+        log.info("カメラリソースを解放しました")
+
+    asyncio.create_task(shutdown_wait_and_exit())
+
+async def shutdown_wait_and_exit():
+    await asyncio.sleep(3)
+    log.warning("接続が閉じなかったため、強制終了します")
+    os._exit(0)
+
+async def run():
+    config = Config("app:app", host="0.0.0.0", port=8888, log_level="info")
+    server = Server(config)
+
+    def _graceful_shutdown():
+        log.info("SIGTERM/SIGINT を受信しました。シャットダウンを開始します。")
+        shutdown_event.set()
+        server.should_exit = True
+
+    loop = asyncio.get_running_loop()
+    for sig in (signal.SIGINT, signal.SIGTERM):
+        loop.add_signal_handler(sig, _graceful_shutdown)
+
+    log.info("サーバ起動中...")
+    await server.serve()
 
 if __name__ == "__main__":
-    uvicorn.run("app:app", host="0.0.0.0", port=8888)
+    try:
+        asyncio.run(run())
+    except KeyboardInterrupt:
+        log.info("KeyboardInterrupt: 終了処理を実行します")
+        shutdown_event.set()
+        if camera:
+            camera.release()
+        os._exit(0)

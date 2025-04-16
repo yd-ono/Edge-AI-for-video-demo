@@ -10,11 +10,11 @@
     <div class="controls">
         <div class="form-group">
             <label for="labels">検出ラベル (カンマ区切り):</label>
-            <input type="text" id="labels" class="form-control" value="{{ labels }}">
+            <input type="text" id="labels" class="form-control">
         </div>
         <div class="status" id="status"></div>
     </div>
-    
+
     <div class="container">        
         <div class="video-container">
             <img src="/video_feed" id="video" alt="ビデオストリーム">
@@ -25,7 +25,8 @@
         const inputField = document.getElementById('labels');
         const status = document.getElementById('status');
         let timeout = null;
-    
+
+        // 手動変更時のラベル更新
         inputField.addEventListener('input', () => {
             clearTimeout(timeout);
             timeout = setTimeout(() => {
@@ -36,6 +37,7 @@
                     body: JSON.stringify({ labels: labels }),
                 }).then(response => response.json())
                   .then(data => {
+                    inputField.value = data.labels.join(', ');
                     status.textContent = 'ラベル更新: ' + data.labels.join(', ');
                     status.style.color = 'green';
                     setTimeout(() => status.textContent = '', 2000);
@@ -43,8 +45,21 @@
                     status.textContent = 'エラー: ' + error.message;
                     status.style.color = 'red';
                   });
-            }, 1000);  // 1秒後に反映
+            }, 1000);
         });
+
+        // ラベルを定期的に取得して更新
+        function refreshLabels() {
+            fetch('/get_labels')
+                .then(res => res.json())
+                .then(data => {
+                    inputField.value = data.labels.join(', ');
+                });
+        }
+
+        // 初回・1秒おきにラベル取得
+        refreshLabels();
+        setInterval(refreshLabels, 5000);
     </script>
 </body>
 </html>
