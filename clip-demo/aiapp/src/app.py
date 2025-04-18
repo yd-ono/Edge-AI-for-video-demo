@@ -161,9 +161,12 @@ def infer_batch(frames, labels):
         logits = np.array(results.get("logits_per_text", []))
         if logits.shape[0] == len(labels):
             logits = logits.T
-        return [np.exp(l - np.max(l)) / np.sum(np.exp(l - np.max(l))) for l in logits]
+        
+        # return [np.exp(l - np.max(l)) / np.sum(np.exp(l - np.max(l))) for l in logits]
+        return [l.tolist() for l in logits]
     except Exception as e:
         log.error(f"推論エラー: {e}")
+        # return [np.zeros(len(labels)) for _ in frames]
         return [np.zeros(len(labels)) for _ in frames]
 
 # フレーム処理

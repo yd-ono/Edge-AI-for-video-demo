@@ -1,10 +1,5 @@
 import requests
-import time
-import shutil
 import base64
-import json
-import re
-from io import BytesIO
 
 class OpenWebUiHelper():
     TIMEOUT = 30
