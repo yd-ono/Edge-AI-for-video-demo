@@ -29,7 +29,9 @@ from starlette.background import BackgroundTask
 MODEL_NAME = os.getenv("MODEL_NAME", "demo")
 OVMS_HOST = os.getenv("OVMS_HOST", "192.168.3.102:32290")
 LABELS = os.getenv("LABELS", "person,dog,cat").split(",")
-CAMERA_SOURCE = int(os.getenv("CAMERA_SOURCE", "0"))
+CAMERA_SOURCE = os.getenv("CAMERA_SOURCE", "0")
+if CAMERA_SOURCE == "0":
+    CAMERA_SOURCE = 0
 INFERENCE_BATCH_SIZE = int(os.getenv("INFERENCE_BATCH_SIZE", "4"))
 FRAME_BUFFER_SIZE = int(os.getenv("FRAME_BUFFER_SIZE", "2"))
 INFERENCE_INTERVAL = float(os.getenv("INFERENCE_INTERVAL", "0.1"))
