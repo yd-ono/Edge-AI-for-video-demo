@@ -37,7 +37,7 @@ class OpenWebUiHelper():
             )
             response.raise_for_status()
             result = response.json()
-            print(f'[webui helper] dialogue API response:{result}')
+            # print(f'[webui helper] dialogue API response:{result}')
 
             # chat_print(self.assistant_name, answer, self.verbose)
             return  result

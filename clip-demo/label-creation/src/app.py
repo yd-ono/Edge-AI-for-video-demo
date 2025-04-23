@@ -2,14 +2,17 @@ import time
 import requests
 import os
 from open_web_ui_helper import OpenWebUiHelper
-from keys_openwebui import OPEN_WEB_UI_API_KEY, OPEN_WEB_UI_ASSISTANT_ID, OPEN_WEB_UI_BASE_URL
 import json
 import re
 
 # ==== 設定 ====
-SNAPSHOT_URL = os.getenv("SNAPSHOT_URL", "http://localhost:8888/snapshot")
-SET_LABELS_URL = os.getenv("SET_LABELS_URL", "http://localhost:8888/set_labels")
+SNAPSHOT_URL = os.getenv("SNAPSHOT_URL", "http://localhost:9000/snapshot")
+SET_LABELS_URL = os.getenv("SET_LABELS_URL", "http://localhost:9000/set_labels")
 INTERVAL = int(os.getenv("INTERVAL", "1"))  # 秒ごとの間隔
+OPEN_WEB_UI_API_KEY = os.getenv("OPEN_WEB_UI_API_KEY", "sk-1124e6c512ef4175b9ea60f4c94a37b7")
+OPEN_WEB_UI_ASSISTANT_ID = os.getenv("OPEN_WEB_UI_ASSISTANT_ID", "clip-assistant")
+OPEN_WEB_UI_BASE_URL = os.getenv("OPEN_WEB_UI_BASE_URL", "http://localhost:3000/api")
+
 
 # ==== 初期化 ====
 open_web_ui_helper = OpenWebUiHelper(
