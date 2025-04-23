@@ -23,7 +23,10 @@ import signal
 import sys
 import os
 from uvicorn import Config, Server
+import uvicorn
 from starlette.background import BackgroundTask
+from prometheus_client import generate_latest, CONTENT_TYPE_LATEST, Gauge
+
 
 # ==== 環境変数設定 ====
 MODEL_NAME = os.getenv("MODEL_NAME", "demo")
@@ -41,6 +44,10 @@ MQTT_PORT = int(os.getenv("MQTT_PORT", "1883"))
 MQTT_TOPIC = os.getenv("MQTT_TOPIC", "clip/result")
 MQTT_QOS = int(os.getenv("MQTT_QOS", "1"))
 MQTT_RETAIN = True
+
+is_ready = False  # readinessProbe用
+inference_fps = Gauge('clip_inference_fps', 'Frames per second during inference')
+
 
 logging.basicConfig(level=getattr(logging, LOG_LEVEL))
 log = logging.getLogger("clip-app")
@@ -245,27 +252,34 @@ def draw_score_bar(frame, scores, labels):
     draw = ImageDraw.Draw(image_pil)
 
     font_path = find_japanese_font()
-    if font_path:
-        try:
-            font = ImageFont.truetype(font_path, 24)
-        except Exception as e:
-            log.warning(f"フォント読み込み失敗: {e}")
-            font = ImageFont.load_default()
-    else:
-        log.warning("日本語フォントが見つかりません。英語フォントで代用します。")
+    try:
+        font = ImageFont.truetype(font_path, 24) if font_path else ImageFont.load_default()
+    except Exception as e:
+        log.warning(f"フォント読み込み失敗: {e}")
         font = ImageFont.load_default()
 
-    # スコアバーの描画
-    for i, (label, score) in enumerate(zip(labels, scores)):
-        # スコアバーのY座標
-        y = margin + i * (bar_height + spacing)
-        # スコアバーの描画
-        bar_len = int(min(score, 1.0) * bar_width)
-        draw.rectangle([10, y, 10 + bar_len, y + bar_height], fill=(50, int(255 * score), int(255 * (1 - score))))
-        draw.text((15, y + 5), f"{label}: {score:.2f}", font=font, fill=(255, 255, 255))
+    # 最大スコア（0除算防止のためepsilon加算）
+    max_score = max(scores) if len(scores) > 0 else 1.0
+    if max_score == 0:
+        max_score = 1e-6  # prevent zero division
 
-    # Pillow → OpenCV 戻し
+    for i, (label, score) in enumerate(zip(labels, scores)):
+        y = margin + i * (bar_height + spacing)
+        bar_len = int(score / max_score * bar_width)
+
+        # 青系の色（スコアによって濃くなる）
+        color = (int(50 + 205 * (score / max_score)), 100, 255)
+
+        # 背景に対しての文字色（バーが明るければ黒文字に）
+        brightness = sum(color) / 3
+        text_color = (0, 0, 0) if brightness > 150 else (255, 255, 255)
+
+        draw.rectangle([10, y, 10 + bar_len, y + bar_height], fill=color)
+        draw.text((15, y + 5), f"{label}: {score:.2f}", font=font, fill=text_color)
+
+
     return cv2.cvtColor(np.array(image_pil), cv2.COLOR_RGB2BGR)
+
 
 # スコアの整合性確認
 def ensure_scores(scores, labels):
@@ -296,6 +310,9 @@ def frame_generator():
                 last_infer_time = time.time()
             scores = ensure_scores(latest_scores, current_labels)
             annotated = draw_score_bar(frame.copy(), scores, current_labels)
+
+            inference_fps.set(current_fps)  # FPSをPrometheusに反映
+
             cv2.putText(annotated, f"FPS: {current_fps}", (10, annotated.shape[0] - 10),
                         cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 0, 255), 2)
             _, buffer = cv2.imencode(".jpg", annotated, [int(cv2.IMWRITE_JPEG_QUALITY), 80])
@@ -314,6 +331,11 @@ def frame_generator():
 @app.get("/", response_class=HTMLResponse)
 def index(request: Request):
     return templates.TemplateResponse("index.html", {"request": request, "labels": ",".join(current_labels), "camera_source": CAMERA_SOURCE})
+
+@app.get("/metrics")
+def metrics():
+    return Response(content=generate_latest(), media_type=CONTENT_TYPE_LATEST)
+
 
 #  ==== ラベル更新 ====
 @app.post("/set_labels")
@@ -359,22 +381,29 @@ def get_labels():
 
 
 # ==== ヘルスチェック ====
-@app.get("/health")
-def health():
-    return {
-        "ovms_status": "ready" if client and tokenizer else "not_ready",
-        "mqtt_status": "connected" if mqtt_connected else "disconnected"
-    }
+@app.get("/healthz")
+def liveness_probe():
+    return {"status": "alive"}
+
+@app.get("/readyz")
+def readiness_probe():
+    return {"status": "ready" if is_ready else "not_ready"}
+
 
 # ==== アプリケーション起動 ====
 @app.on_event("startup")
 async def startup():
-    initialize_model()
+    global is_ready
+    model_ready = initialize_model()
     setup_mqtt()
+    is_ready = model_ready  # 初期化成功したら ready
+
 
 # ==== アプリケーションシャットダウン ====
 @app.on_event("shutdown")
 async def shutdown():
+    global is_ready
+    is_ready = False
     log.info("アプリケーションシャットダウン: スレッドプール停止中")
     shutdown_event.set()
     if executor:
@@ -397,24 +426,35 @@ async def run():
     config = Config("app:app", host="0.0.0.0", port=8888, log_level="info")
     server = Server(config)
 
+    loop = asyncio.get_running_loop()
+
     def _graceful_shutdown():
-        log.info("SIGTERM/SIGINT を受信しました。シャットダウンを開始します。")
+        log.info("SIGINT/SIGTERM を受信、シャットダウン開始")
         shutdown_event.set()
         server.should_exit = True
+        loop.stop()
 
-    loop = asyncio.get_running_loop()
     for sig in (signal.SIGINT, signal.SIGTERM):
         loop.add_signal_handler(sig, _graceful_shutdown)
 
     log.info("サーバ起動中...")
     await server.serve()
 
+
 if __name__ == "__main__":
+
     try:
-        asyncio.run(run())
+        uvicorn.run(app, host="0.0.0.0", port=8888, log_level="info")
     except KeyboardInterrupt:
-        log.info("KeyboardInterrupt: 終了処理を実行します")
+        log.info("KeyboardInterrupt: シャットダウンイベント発火")
         shutdown_event.set()
+    finally:
+        log.info("終了処理中...")
+        if mqtt_client:
+            mqtt_client.loop_stop()
+            mqtt_client.disconnect()
         if camera:
             camera.release()
+        log.info("全リソース解放済み。プロセスを終了します。")
         os._exit(0)
+
