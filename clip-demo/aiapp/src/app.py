@@ -180,13 +180,7 @@ def process_frames():
 def find_japanese_font():
     # よく使われる日本語フォントの候補パス
     font_candidates = [
-        "/usr/share/fonts/opentype/noto/NotoSansCJK-Regular.ttc",
-        "/usr/share/fonts/opentype/noto/NotoSansCJKJP-Regular.otf",
-        "/usr/share/fonts/truetype/noto/NotoSansCJK-Regular.ttc",
-        "/usr/share/fonts/truetype/fonts-japanese-gothic.ttf",
-        "/usr/share/fonts/opentype/ipafont-gothic/ipag.ttf",
-        "/usr/share/fonts/truetype/ipa/ipag.ttf",
-        "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
+        "/usr/share/fonts/truetype/google-droid-sans-fonts/DroidSansJapanese.ttf",
         "/System/Library/Fonts/ヒラギノ丸ゴ ProN W4.ttc"
     ]
     # 候補パスを順にチェック
