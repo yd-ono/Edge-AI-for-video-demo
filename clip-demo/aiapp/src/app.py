@@ -81,8 +81,6 @@ class Camera:
         if self.cap:
             self.cap.release()
 
-camera = Camera(CAMERA_SOURCE)
-
 # MQTT処理
 
 def on_connect(client, userdata, flags, rc):
@@ -333,6 +331,16 @@ def readyz():
 
 @app.on_event("startup")
 async def startup():
+    global camera
+    print("[Startup] Initializing camera...")
+
+    try:
+        camera = Camera(CAMERA_SOURCE)
+        print("[Startup] Camera initialized.")
+    except RuntimeError as e:
+        log.error(f"カメラ初期化失敗: {e}")
+        sys.exit(1)
+    
     initialize_model()
     setup_mqtt()
 
