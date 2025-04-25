@@ -9,6 +9,9 @@ WORKDIR /app
 COPY requirements.txt .
 RUN pip3 install --no-cache-dir -r requirements.txt
 
+
+COPY fonts/ipaexg.ttf /usr/share/fonts/ipaexg.ttf
+
 # アプリ起動などはここに続く
 WORKDIR /app/src
 COPY src .

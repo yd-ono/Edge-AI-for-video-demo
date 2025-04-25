@@ -178,10 +178,9 @@ def process_frames():
         is_processing = False
 
 def find_japanese_font():
-    # よく使われる日本語フォントの候補パス
+    # 本語フォントの候補パス
     font_candidates = [
-        "/usr/share/fonts/truetype/google-droid-sans-fonts/DroidSansJapanese.ttf",
-        "/System/Library/Fonts/ヒラギノ丸ゴ ProN W4.ttc"
+        "/Users/yono/Documents/work/Edge-AI-for-video-demo/clip-demo/aiapp/fonts/ipaexg.ttf"
     ]
     # 候補パスを順にチェック
     for path in font_candidates:
