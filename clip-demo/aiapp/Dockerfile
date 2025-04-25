@@ -12,5 +12,5 @@ RUN pip3 install --no-cache-dir -r requirements.txt
 # アプリ起動などはここに続く
 WORKDIR /app/src
 COPY src .
-EXPOSE 8888
+EXPOSE 9000
 CMD ["python", "app.py"]
