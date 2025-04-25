@@ -66,7 +66,7 @@ mqtt_connected = False
 shutdown_event = threading.Event()
 
 class Camera:
-    def __init__(self, source=0):
+    def __init__(self, source):
         self.cap = cv2.VideoCapture(source)
         if not self.cap.isOpened():
             raise RuntimeError(f"カメラソース({source})を開けません")
