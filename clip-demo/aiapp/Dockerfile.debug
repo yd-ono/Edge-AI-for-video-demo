@@ -1,0 +1,10 @@
+FROM alpine:latest
+
+# 必要なパッケージをインストール（任意で拡張）
+RUN apk add --no-cache bash curl git
+
+WORKDIR /app/src
+COPY src ./
+
+# 任意の起動コマンド（必要なければコメントアウトでOK）
+CMD ["sh"]

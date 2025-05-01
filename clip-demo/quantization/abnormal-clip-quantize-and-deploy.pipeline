@@ -19,16 +19,20 @@
               "outputs": [],
               "env_vars": [
                 {
-                  "env_var": "AWS_S3_ENDPOINT"
+                  "env_var": "AWS_S3_ENDPOINT",
+                  "value": ""
                 },
                 {
-                  "env_var": "AWS_S3_BUCKET"
+                  "env_var": "AWS_S3_BUCKET",
+                  "value": ""
                 },
                 {
-                  "env_var": "AWS_ACCESS_KEY_ID"
+                  "env_var": "AWS_ACCESS_KEY_ID",
+                  "value": ""
                 },
                 {
-                  "env_var": "AWS_SECRET_ACCESS_KEY"
+                  "env_var": "AWS_SECRET_ACCESS_KEY",
+                  "value": ""
                 }
               ],
               "kubernetes_pod_annotations": [],
@@ -44,8 +48,8 @@
             "ui_data": {
               "label": "upload-abnormal-model.ipynb",
               "image": "/notebook/clip-dev/clip-dev/static/elyra/notebook.svg",
-              "x_pos": 232,
-              "y_pos": 201,
+              "x_pos": 233,
+              "y_pos": 200,
               "description": "Run notebook file"
             }
           },
@@ -93,7 +97,10 @@
             "component_parameters": {
               "dependencies": [],
               "include_subdirectories": false,
-              "outputs": [],
+              "outputs": [
+                "clip-vit-base-patch16_int8_lowacc.xml",
+                "clip-vit-base-patch16_int8_lowacc.bin"
+              ],
               "env_vars": [],
               "kubernetes_pod_annotations": [],
               "kubernetes_pod_labels": [],
