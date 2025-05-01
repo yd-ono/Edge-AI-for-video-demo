@@ -1,0 +1,8 @@
+FROM quay.io/yono/clip-demo:1.0
+
+
+# アプリ起動などはここに続く
+WORKDIR /app/src
+COPY src/templates/index.html ./templates/index.html
+EXPOSE 9000
+CMD ["python", "app.py"]

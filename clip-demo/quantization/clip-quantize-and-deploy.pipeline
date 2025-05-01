@@ -16,7 +16,10 @@
             "component_parameters": {
               "dependencies": [],
               "include_subdirectories": false,
-              "outputs": [],
+              "outputs": [
+                "clip-vit-base-patch16_int8.xml",
+                "clip-vit-base-patch16_int8.bin"
+              ],
               "env_vars": [],
               "kubernetes_pod_annotations": [],
               "kubernetes_pod_labels": [],
@@ -76,16 +79,20 @@
               "outputs": [],
               "env_vars": [
                 {
-                  "env_var": "AWS_S3_ENDPOINT"
+                  "env_var": "AWS_S3_ENDPOINT",
+                  "value": "minio.ic-shared-minio.svc.cluster.local:9000"
                 },
                 {
-                  "env_var": "AWS_S3_BUCKET"
+                  "env_var": "AWS_S3_BUCKET",
+                  "value": "models"
                 },
                 {
-                  "env_var": "AWS_ACCESS_KEY_ID"
+                  "env_var": "AWS_ACCESS_KEY_ID",
+                  "value": "minio"
                 },
                 {
-                  "env_var": "AWS_SECRET_ACCESS_KEY"
+                  "env_var": "AWS_SECRET_ACCESS_KEY",
+                  "value": "MTQxNjc1"
                 }
               ],
               "kubernetes_pod_annotations": [],
