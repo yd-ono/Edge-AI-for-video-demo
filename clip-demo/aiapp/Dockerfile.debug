@@ -1,7 +1,5 @@
 FROM alpine:latest
 
-# 必要なパッケージをインストール（任意で拡張）
-RUN apk add --no-cache bash curl git
 
 WORKDIR /app/src
 COPY src ./
