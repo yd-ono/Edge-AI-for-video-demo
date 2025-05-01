@@ -80,19 +80,19 @@
               "env_vars": [
                 {
                   "env_var": "AWS_S3_ENDPOINT",
-                  "value": "minio.ic-shared-minio.svc.cluster.local:9000"
+                  "value": ""
                 },
                 {
                   "env_var": "AWS_S3_BUCKET",
-                  "value": "models"
+                  "value": ""
                 },
                 {
                   "env_var": "AWS_ACCESS_KEY_ID",
-                  "value": "minio"
+                  "value": ""
                 },
                 {
                   "env_var": "AWS_SECRET_ACCESS_KEY",
-                  "value": "MTQxNjc1"
+                  "value": ""
                 }
               ],
               "kubernetes_pod_annotations": [],
