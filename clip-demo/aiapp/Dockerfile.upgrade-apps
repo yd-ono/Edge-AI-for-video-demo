@@ -1,5 +1,4 @@
-FROM quay.io/yono/clip-demo:1.0
-
+FROM quay.io/yono/clip-demo/aiapp:1.0
 
 # アプリ起動などはここに続く
 WORKDIR /app/src
