@@ -26,8 +26,8 @@ from prometheus_client import Gauge, Summary, CollectorRegistry, generate_latest
 
 # ==== 環境変数設定 ====
 MODEL_NAME = os.getenv("MODEL_NAME", "demo")
-OVMS_HOST = os.getenv("OVMS_HOST", "192.168.3.102:32290")
-LABELS = os.getenv("LABELS", "suspicious object, Not suspicious").split(",")
+OVMS_HOST = os.getenv("OVMS_HOST", "192.168.3.130:32290")
+LABELS = os.getenv("LABELS", "human,soldier").split(",")
 CAMERA_SOURCE = 0 if os.getenv("CAMERA_SOURCE", "0") == "0" else os.getenv("CAMERA_SOURCE")
 INFERENCE_BATCH_SIZE = int(os.getenv("INFERENCE_BATCH_SIZE", "4"))
 FRAME_BUFFER_SIZE = int(os.getenv("FRAME_BUFFER_SIZE", "2"))
