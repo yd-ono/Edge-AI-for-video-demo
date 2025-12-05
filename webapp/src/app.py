@@ -131,21 +131,21 @@ def predict_feed():
 
 
 # ========= スナップショット =========
-# @app.route("/save_image")
-# def save_image():
-#     with frame_lock:
-#         frame = latest_raw_frame
+@app.route("/save_image")
+def save_image():
+    with frame_lock:
+        frame = latest_raw_frame
 
-#     if frame is None:
-#         log.error("No frame available for snapshot")
-#         abort(500, description="no frame")
+    if frame is None:
+        log.error("No frame available for snapshot")
+        abort(500, description="no frame")
 
-#     ok, buf = cv2.imencode(".jpg", frame)
-#     if not ok:
-#         log.error("Failed to encode snapshot frame")
-#         abort(500, description="encode error")
+    ok, buf = cv2.imencode(".jpg", frame)
+    if not ok:
+        log.error("Failed to encode snapshot frame")
+        abort(500, description="encode error")
 
-#     return Response(buf.tobytes(), mimetype="image/jpeg")
+    return Response(buf.tobytes(), mimetype="image/jpeg")
 
 
 # ========= Graceful Shutdown (Ctrl+C / SIGTERM) =========
