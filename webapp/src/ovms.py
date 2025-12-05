@@ -1,22 +1,86 @@
-import ovmsclient
 import cv2
-from typing import Tuple, Dict
-from ultralytics.utils import ops
-import torch
-import numpy as np
-from ultralytics.utils.plotting import colors
-import random
 import logging
+from typing import Tuple, Dict
+
+import numpy as np
+import torch
+from ultralytics.utils import ops
+from ultralytics.utils.plotting import colors
+
 import load_env
 
-# Loggerを初期化
-logging.basicConfig(format="%(asctime)s - %(levelname)s - %(message)s",
-                    level=logging.INFO)
+# gRPC 用
+import ovmsclient
+# REST(KServe/OVMS HTTP) 用
+import requests
+
+logging.basicConfig(
+    format="%(asctime)s - %(levelname)s - %(message)s",
+    level=logging.INFO,
+)
 log = logging.getLogger(__name__)
 
 load_env.read_val_from_dotenv()
 
+# ========= 環境変数 =========
+PROTOCOL = getattr(load_env, "OVMS_PROTOCOL", "grpc").lower()   # "grpc" or "rest"
+ENDPOINT = getattr(load_env, "OVMS_ENDPOINT", "localhost:9000")
+MODEL_NAME = getattr(load_env, "MODEL_NAME", "yolov8")
+OVMS_TIMEOUT = float(getattr(load_env, "OVMS_CLIENT_TIMEOUT", 5))
 
+INPUT_NAME_ENV = getattr(load_env, "OVMS_INPUT_NAME", None)
+
+# ========= クライアントキャッシュ =========
+_grpc_client = None
+_grpc_input_name = None
+
+_rest_session = None
+_rest_url = None
+_rest_input_name = None
+
+
+def _init_grpc_client():
+    global _grpc_client, _grpc_input_name
+    if _grpc_client is not None:
+        return
+
+    log.info(f"Create gRPC client to OVMS: {ENDPOINT}")
+    _grpc_client = ovmsclient.make_grpc_client(ENDPOINT)
+
+    meta = _grpc_client.get_model_metadata(
+        model_name=MODEL_NAME,
+        timeout=OVMS_TIMEOUT
+    )
+    if INPUT_NAME_ENV:
+        _grpc_input_name = INPUT_NAME_ENV
+    else:
+        _grpc_input_name = next(iter(meta["inputs"]))
+
+    log.info(f"OVMS model input name: {_grpc_input_name}")
+
+
+def _init_rest_client():
+    """
+    KServe / OVMS REST v2 想定。
+    ENDPOINT は例: http://ovms:8001  のようなURLベース。
+    """
+    global _rest_session, _rest_url, _rest_input_name
+    if _rest_session is not None:
+        return
+
+    if not ENDPOINT.startswith("http"):
+        base = "http://" + ENDPOINT
+    else:
+        base = ENDPOINT
+
+    _rest_session = requests.Session()
+    _rest_url = base.rstrip("/") + f"/v2/models/{MODEL_NAME}/infer"
+    _rest_input_name = INPUT_NAME_ENV or "images"
+
+    log.info(f"Create REST client to KServe/OVMS: {_rest_url}, input={_rest_input_name}")
+
+
+# ========= 描画系ユーティリティ =========
 def plot_one_box(
     box: np.ndarray,
     img: np.ndarray,
@@ -24,25 +88,15 @@ def plot_one_box(
     label: str = None,
     line_thickness: int = 5,
 ):
-    """
-    画像上に単一のバウンディングボックスを描画するヘルパー関数
-    パラメータ
-        x (np.ndarray): [x1, y1, x2, y2]形式のバウンディングボックス座標。
-        img (no.ndarray): 入力画像
-        color (Tuple[int, int, int], *optional*, None): 描画ボックスの BGR 形式の色。
-        label (str, *optonal*, None): 描画ボックスのラベル文字列。
-        line_thickness (int, *optional*, 5): 描画ボックスの線の太さ。
-    """
-    # Plots one bounding box on image img
-    tl = line_thickness or round(0.002 * (img.shape[0] + img.shape[1]) / 2) + 1  # line/font thickness
-    color = color or [random.randint(0, 255) for _ in range(3)]
+    tl = line_thickness or round(0.002 * (img.shape[0] + img.shape[1]) / 2) + 1
+    color = color or [int(x) for x in np.random.randint(0, 255, 3)]
     c1, c2 = (int(box[0]), int(box[1])), (int(box[2]), int(box[3]))
     cv2.rectangle(img, c1, c2, color, thickness=tl, lineType=cv2.LINE_AA)
     if label:
-        tf = max(tl - 1, 1)  # font thickness
+        tf = max(tl - 1, 1)
         t_size = cv2.getTextSize(label, 0, fontScale=tl / 3, thickness=tf)[0]
         c2 = c1[0] + t_size[0], c1[1] - t_size[1] - 3
-        cv2.rectangle(img, c1, c2, color, -1, cv2.LINE_AA)  # filled
+        cv2.rectangle(img, c1, c2, color, -1, cv2.LINE_AA)
         cv2.putText(
             img,
             label,
@@ -53,7 +107,6 @@ def plot_one_box(
             thickness=tf,
             lineType=cv2.LINE_AA,
         )
-
     return img
 
 
@@ -66,55 +119,38 @@ def letterbox(
     scaleup: bool = False,
     stride: int = 32,
 ):
-    """
-    画像サイズと検出用パディングを変更する。画像を入力として受け取る、
-    元のアスペクト比を保ったまま新しい形状に収まるように画像をリサイズし，ストライド多重制約を満たすようにパディングする。
-
-    パラメータ
-      img (np.ndarray): 前処理用の画像。
-      new_shape (Tuple(int, int)): 前処理後の画像サイズ (フォーマット [height, width])
-      color (Tuple(int, int, int)): パディングされた領域を塗りつぶす色。
-      auto (bool): 動的な入力サイズを使用し、ストライド定数に対するパディングのみ適用
-      scale_fill (bool): new_shape を埋めるように画像を拡大縮小します。
-      scaleup (bool): 必要な入力サイズより小さい場合に画像の拡大縮小を許可する。
-      stride (int): 入力パディングの長さ。
-    戻り値
-      img (np.ndarray): 前処理後の画像。
-
-    """
-    # Resize and pad image while meeting stride-multiple constraints
-    shape = img.shape[:2]  # current shape [height, width]
+    shape = img.shape[:2]  # h, w
     if isinstance(new_shape, int):
         new_shape = (new_shape, new_shape)
 
-    # Scale ratio (new / old)
     r = min(new_shape[0] / shape[0], new_shape[1] / shape[1])
-    if not scaleup:  # only scale down, do not scale up (for better test mAP)
+    if not scaleup:
         r = min(r, 1.0)
 
-    # Compute padding
-    ratio = r, r  # width, height ratios
+    ratio = r, r
     new_unpad = int(round(shape[1] * r)), int(round(shape[0] * r))
-    dw, dh = new_shape[1] - new_unpad[0], new_shape[0] - new_unpad[1]  # wh padding
-    if auto:  # minimum rectangle
-        dw, dh = np.mod(dw, stride), np.mod(dh, stride)  # wh padding
-    elif scale_fill:  # stretch
+    dw, dh = new_shape[1] - new_unpad[0], new_shape[0] - new_unpad[1]
+    if auto:
+        dw, dh = np.mod(dw, stride), np.mod(dh, stride)
+    elif scale_fill:
         dw, dh = 0.0, 0.0
         new_unpad = (new_shape[1], new_shape[0])
-        ratio = new_shape[1] / shape[1], new_shape[0] / shape[0]  # width, height ratios
+        ratio = new_shape[1] / shape[1], new_shape[0] / shape[0]
 
-    dw /= 2  # divide padding into 2 sides
+    dw /= 2
     dh /= 2
 
-    if shape[::-1] != new_unpad:  # resize
+    if shape[::-1] != new_unpad:
         img = cv2.resize(img, new_unpad, interpolation=cv2.INTER_LINEAR)
     top, bottom = int(round(dh - 0.1)), int(round(dh + 0.1))
     left, right = int(round(dw - 0.1)), int(round(dw + 0.1))
-    img = cv2.copyMakeBorder(img, top, bottom, left, right, cv2.BORDER_CONSTANT, value=color)  # add border
+    img = cv2.copyMakeBorder(
+        img, top, bottom, left, right,
+        cv2.BORDER_CONSTANT, value=color
+    )
     return img, ratio, (dw, dh)
 
 
-## 後処理
 def postprocess(
     pred_boxes: np.ndarray,
     input_hw: Tuple[int, int],
@@ -124,21 +160,14 @@ def postprocess(
     agnosting_nms: bool = False,
     max_detections: int = 300,
 ):
-    """
-    YOLOv8モデルの後処理機能。検出された画像に非最大圧縮アルゴリズムを適用し、元の画像サイズにボックスを再スケールする。
-    パラメータ
-        pred_boxes (np.ndarray): モデル出力予測ボックス
-        input_hw (np.ndarray): 前処理済み画像
-        orig_image (np.ndarray): 前処理前の画像
-        min_conf_threshold (float, *optional*, 0.25): オブジェクトフィルタリングのための最小許容信頼度
-        nms_iou_threshold (float, *optional*, 0.45): NMS でオブジェクトの重複を除去するための最小重複スコア
-        agnostic_nms (bool, *optiona*, False): クラスアグノスティックの NMS アプローチを適用するかどうか
-        max_detections (int, *optional*, 300): NMS後の最大検出数。
-    戻り値
-       pred (List[Dict[str, np.ndarray]]): [x1, y1, x2, y2, score, label]のフォーマットで検出されたボックスを含む辞書のリスト
-    """
     nms_kwargs = {"agnostic": agnosting_nms, "max_det": max_detections}
-    preds = ops.non_max_suppression(torch.from_numpy(pred_boxes), min_conf_threshold, nms_iou_threshold, nc=80, **nms_kwargs)
+    preds = ops.non_max_suppression(
+        torch.from_numpy(pred_boxes),
+        min_conf_threshold,
+        nms_iou_threshold,
+        nc=80,
+        **nms_kwargs,
+    )
 
     results = []
     for i, pred in enumerate(preds):
@@ -148,54 +177,99 @@ def postprocess(
             continue
         pred[:, :4] = ops.scale_boxes(input_hw, pred[:, :4], shape).round()
         results.append({"det": pred})
-
     return results
 
-def detect(image:np.ndarray):
-    """
-    OpenVINO YOLOv8モデル推論機能。画像を前処理し、モデル推論を実行し、NMSを使って結果を後処理する。
-    パラメータ
-        image (np.ndarray): 入力画像
-    戻り値
-        detections (np.ndarray): [x1, y1, x2, y2, score, label]の形式で検出されたボックス
-    """
 
-    # OVMSサーバとgRPC接続
-    client = ovmsclient.make_grpc_client(load_env.OVMS_ENDPOINT)
+# ========= 推論本体 =========
+def _grpc_detect(image: np.ndarray):
+    _init_grpc_client()
 
-    # モデルのメタデータからモデルへの入力形式を取得
-    model_metadata = client.get_model_metadata(model_name=load_env.MODEL_NAME, timeout=load_env.OVMS_CLIENT_TIMEOUT)
+    preprocessed = letterbox(image)[0]
+    input_tensor = np.expand_dims(preprocessed, 0)
+    input_hw = preprocessed.shape[:2]
 
-    # モデルに入力が1つしかない場合は、その名前を取得する。
-    input_name = next(iter(model_metadata["inputs"]))
-
-    preprocessed_image = letterbox(image)[0]
-    input_tensor = np.expand_dims(preprocessed_image, 0)
-    inputs = {input_name: input_tensor}
-    input_hw = preprocessed_image.shape[:2]
-
-    # OVMSと接続してYolov8による物体検知を実行
-    boxes = client.predict(inputs=inputs, model_name=load_env.MODEL_NAME,timeout=load_env.OVMS_CLIENT_TIMEOUT)
-    # Yolov8の出力テンソルへ後処理を行い、元の画像サイズへスケールする
+    inputs = {_grpc_input_name: input_tensor}
+    boxes = _grpc_client.predict(
+        inputs=inputs,
+        model_name=MODEL_NAME,
+        timeout=OVMS_TIMEOUT,
+    )
+    # ovmsclient は dict を返すので最初の value を取得
+    if isinstance(boxes, dict):
+        boxes = next(iter(boxes.values()))
     detections = postprocess(pred_boxes=boxes, input_hw=input_hw, orig_img=image)
     return detections
 
 
-def draw_results(results:Dict, source_image:np.ndarray, label_map:Dict):
+def _rest_detect(image: np.ndarray):
     """
-    画像にバウンディングボックスを描画するヘルパー関数
-    パラメータ
-        image_res (np.ndarray): [x1, y1, x2, y2, score, label_id] 形式の検出予測値。
-        source_image (np.ndarray): 描画用の入力画像
-        label_map; (Dict[int, str]): label_id からクラス名へのマッピング
-    戻り値
-        ボックスを含む画像
+    KServe/OVMS REST v2用の参考実装。
+    モデルの input_name / 出力shape に応じて調整してください。
+    """
+    _init_rest_client()
+
+    preprocessed = letterbox(image)[0]
+    input_tensor = np.expand_dims(preprocessed, 0).astype("float32")
+    input_hw = preprocessed.shape[:2]
+
+    payload = {
+        "inputs": [
+            {
+                "name": _rest_input_name,
+                "shape": list(input_tensor.shape),
+                "datatype": "FP32",
+                "data": input_tensor.reshape(-1).tolist(),
+            }
+        ]
+    }
+
+    resp = _rest_session.post(_rest_url, json=payload, timeout=OVMS_TIMEOUT)
+    resp.raise_for_status()
+    out = resp.json()
+
+    # v2: outputs[0].data / .shape を前提（YOLO形式に合わせる必要あり）
+    outputs = out.get("outputs", [])
+    if not outputs:
+        raise RuntimeError("No outputs from REST model")
+
+    o0 = outputs[0]
+    data = np.array(o0["data"], dtype=np.float32)
+    shape = o0.get("shape", None)
+    if shape:
+        data = data.reshape(shape)
+    # ここでは [N, anchors, 85] のような YOLO 出力を想定
+    boxes = data
+    detections = postprocess(pred_boxes=boxes, input_hw=input_hw, orig_img=image)
+    return detections
+
+
+def detect(image: np.ndarray):
+    """
+    プロトコルに応じて gRPC or REST を呼び分ける。
+    """
+    if PROTOCOL == "rest":
+        return _rest_detect(image)
+    # デフォルト gRPC
+    return _grpc_detect(image)
+
+
+def draw_results(results: Dict, source_image: np.ndarray, label_map: Dict):
+    """
+    検出結果を画像に描画する。
+    results["det"] は [x1,y1,x2,y2,score,label] の Tensor を想定。
     """
     boxes = results["det"]
+    conf_thr = float(getattr(load_env, "CONF", 0.25))
+
     for idx, (*xyxy, conf, lbl) in enumerate(boxes):
-        if conf < load_env.CONF:
+        if conf < conf_thr:
             continue
         label = f'{label_map[int(lbl)]} {conf:.2f}'
         log.info(label)
-        source_image = plot_one_box(xyxy, source_image, label=label, color=colors(int(lbl)), line_thickness=3)
+        source_image = plot_one_box(
+            xyxy, source_image,
+            label=label,
+            color=colors(int(lbl)),
+            line_thickness=3,
+        )
     return source_image
