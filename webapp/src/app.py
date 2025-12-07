@@ -8,7 +8,6 @@ import signal
 import sys
 
 from flask import Flask, Response, abort, render_template
-
 from camera import Camera
 import ovms
 
@@ -27,15 +26,23 @@ app = Flask(__name__, static_folder="./templates/images")
 camera = Camera()
 
 latest_raw_frame = None          # 生フレーム
-latest_encoded_frame = None      # 推論+描画済み JPEG バイト列
 frame_lock = threading.Lock()
+
+latest_detections = None         # 直近の推論結果（ovms.detect()[0]）
+latest_det_ts = 0.0              # その推論が完了した時刻
+detection_lock = threading.Lock()
 
 shutdown_event = threading.Event()
 
-# 目標推論FPS（デフォルト30）
 _raw_fps = float(getattr(load_env, "FPS", 30))
 TARGET_FPS = _raw_fps if _raw_fps > 0 else 30.0
 INFER_INTERVAL = 1.0 / TARGET_FPS
+
+# 🔥 推論スレッド数（デフォルト1）
+INFER_THREADS = int(getattr(load_env, "OVMS_INFER_THREADS", 1))
+
+# 推論結果を「新鮮」とみなす時間（秒）
+DETECTION_TTL = float(getattr(load_env, "DETECTION_TTL", 0.7))
 
 
 # ========= UI =========
@@ -58,60 +65,82 @@ def capture_loop():
         if frame is not None:
             with frame_lock:
                 latest_raw_frame = frame
-        # カメラFPSに任せるが、イベントチェック用に僅かにsleep
         time.sleep(0.001)
     log.info("Exit capture loop")
 
 
-# ========= 推論ループ =========
-def inference_loop(label_map):
-    global latest_encoded_frame
-    log.info(f"Start inference loop (target {TARGET_FPS} FPS)")
+# ========= 推論ループ（複数スレッド対応） =========
+def inference_loop(worker_id: int, label_map):
+    global latest_detections, latest_det_ts
+    log.info(f"Start inference loop (worker={worker_id})")
+
     while not shutdown_event.is_set():
         with frame_lock:
-            frame_ref = latest_raw_frame
+            frame = latest_raw_frame
 
-        if frame_ref is None:
-            time.sleep(0.005)
+        if frame is None:
+            time.sleep(0.001)
             continue
 
+        start = time.perf_counter()
         try:
-            detections = ovms.detect(frame_ref)[0]
-            annotated = ovms.draw_results(detections, frame_ref.copy(), label_map)
+            det0 = ovms.detect(frame)[0]
+            with detection_lock:
+                latest_detections = det0
+                latest_det_ts = time.time()
         except Exception as e:
-            log.error(f"Inference failed: {e}")
-            annotated = frame_ref
+            log.error(f"[worker={worker_id}] Inference failed: {e}")
 
-        ok, buf = cv2.imencode(".jpg", annotated)
-        if ok:
-            latest_encoded_frame = buf.tobytes()
+        elapsed = time.perf_counter() - start
+        spare = max(INFER_INTERVAL - elapsed, 0)
+        if spare > 0:
+            time.sleep(spare * 0.3)
 
-        time.sleep(INFER_INTERVAL)
-    log.info("Exit inference loop")
+    log.info(f"Exit inference loop (worker={worker_id})")
 
 
 # ========= ストリーミング生成 =========
 def _generate_stream(annotated: bool = False):
     boundary = b"--frame\r\n"
-    while not shutdown_event.is_set():
-        if annotated:
-            payload = latest_encoded_frame
-            if payload is None:
-                time.sleep(0.01)
-                continue
-        else:
-            with frame_lock:
-                frame = latest_raw_frame
-            if frame is None:
-                time.sleep(0.01)
-                continue
-            ok, buf = cv2.imencode(".jpg", frame)
-            if not ok:
-                continue
-            payload = buf.tobytes()
 
-        yield boundary + b"Content-Type: image/jpeg\r\n\r\n" + payload + b"\r\n"
-        time.sleep(0.001)  # ストリームのレート（描画側負荷調整用）
+    while not shutdown_event.is_set():
+        with frame_lock:
+            frame = latest_raw_frame
+
+        if frame is None:
+            time.sleep(0.005)
+            continue
+
+        img = frame
+
+        if annotated:
+            now = time.time()
+            with detection_lock:
+                det = latest_detections
+                det_ts = latest_det_ts
+
+            if det is not None and (now - det_ts) <= DETECTION_TTL:
+                try:
+                    img = ovms.draw_results(det, img.copy(), label_map)
+                except Exception as e:
+                    log.error(f"draw_results failed: {e}")
+                    img = frame
+            else:
+                img = frame
+
+        ok, buf = cv2.imencode(".jpg", img)
+        if not ok:
+            continue
+
+        payload = buf.tobytes()
+        yield (
+            boundary +
+            b"Content-Type: image/jpeg\r\n\r\n" +
+            payload +
+            b"\r\n"
+        )
+
+        time.sleep(0.01)
 
 
 @app.route("/video_feed")
@@ -148,7 +177,7 @@ def save_image():
     return Response(buf.tobytes(), mimetype="image/jpeg")
 
 
-# ========= Graceful Shutdown (Ctrl+C / SIGTERM) =========
+# ========= Graceful Shutdown =========
 def _signal_handler(signum, frame):
     log.info(f"Received signal {signum}. Graceful shutdown.")
     shutdown_event.set()
@@ -156,7 +185,6 @@ def _signal_handler(signum, frame):
         camera.release()
     except Exception as e:
         log.warning(f"Error while releasing camera: {e}")
-    # Flask dev server がブロックしていてもここでプロセス終了
     sys.exit(0)
 
 
@@ -166,15 +194,20 @@ signal.signal(signal.SIGTERM, _signal_handler)
 
 # ========= エントリポイント =========
 if __name__ == "__main__":
-    # ラベルマップは起動時に1回だけロード
     with open("coco.yaml", "r") as f:
         config = yaml.safe_load(f)
     label_map = config["names"]
 
+    # カメラ
     t_cap = threading.Thread(target=capture_loop, daemon=True)
-    t_inf = threading.Thread(target=inference_loop, args=(label_map,), daemon=True)
     t_cap.start()
-    t_inf.start()
 
-    # Flask dev server / Ctrl+C で元コードと同じ感覚で終了できるように reloader OFF
+    # 🔥 複数推論ワーカースレッド起動
+    for i in range(INFER_THREADS):
+        threading.Thread(
+            target=inference_loop,
+            args=(i, label_map),
+            daemon=True,
+        ).start()
+
     app.run(host="0.0.0.0", port=int(load_env.PORT), threaded=True, use_reloader=False)

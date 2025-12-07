@@ -1,7 +1,6 @@
 import cv2
 import logging
 from typing import Tuple, Dict
-
 import numpy as np
 import torch
 from ultralytics.utils import ops
@@ -11,8 +10,11 @@ import load_env
 
 # gRPC 用
 import ovmsclient
-# REST(KServe/OVMS HTTP) 用
+# REST 用
 import requests
+import json
+import os
+import time
 
 logging.basicConfig(
     format="%(asctime)s - %(levelname)s - %(message)s",
@@ -23,12 +25,14 @@ log = logging.getLogger(__name__)
 load_env.read_val_from_dotenv()
 
 # ========= 環境変数 =========
-PROTOCOL = getattr(load_env, "OVMS_PROTOCOL", "grpc").lower()   # "grpc" or "rest"
+PROTOCOL = getattr(load_env, "OVMS_PROTOCOL", "grpc").lower()      # "grpc" or "rest"
 ENDPOINT = getattr(load_env, "OVMS_ENDPOINT", "localhost:9000")
 MODEL_NAME = getattr(load_env, "MODEL_NAME", "yolov8")
 OVMS_TIMEOUT = float(getattr(load_env, "OVMS_CLIENT_TIMEOUT", 5))
-
 INPUT_NAME_ENV = getattr(load_env, "OVMS_INPUT_NAME", None)
+
+# REST モード: "binary" or "json"
+REST_MODE = getattr(load_env, "OVMS_REST_MODE", "binary").lower()
 
 # ========= クライアントキャッシュ =========
 _grpc_client = None
@@ -39,48 +43,7 @@ _rest_url = None
 _rest_input_name = None
 
 
-def _init_grpc_client():
-    global _grpc_client, _grpc_input_name
-    if _grpc_client is not None:
-        return
-
-    log.info(f"Create gRPC client to OVMS: {ENDPOINT}")
-    _grpc_client = ovmsclient.make_grpc_client(ENDPOINT)
-
-    meta = _grpc_client.get_model_metadata(
-        model_name=MODEL_NAME,
-        timeout=OVMS_TIMEOUT
-    )
-    if INPUT_NAME_ENV:
-        _grpc_input_name = INPUT_NAME_ENV
-    else:
-        _grpc_input_name = next(iter(meta["inputs"]))
-
-    log.info(f"OVMS model input name: {_grpc_input_name}")
-
-
-def _init_rest_client():
-    """
-    KServe / OVMS REST v2 想定。
-    ENDPOINT は例: http://ovms:8001  のようなURLベース。
-    """
-    global _rest_session, _rest_url, _rest_input_name
-    if _rest_session is not None:
-        return
-
-    if not ENDPOINT.startswith("http"):
-        base = "http://" + ENDPOINT
-    else:
-        base = ENDPOINT
-
-    _rest_session = requests.Session()
-    _rest_url = base.rstrip("/") + f"/v2/models/{MODEL_NAME}/infer"
-    _rest_input_name = INPUT_NAME_ENV or "images"
-
-    log.info(f"Create REST client to KServe/OVMS: {_rest_url}, input={_rest_input_name}")
-
-
-# ========= 描画系ユーティリティ =========
+# ========= 前処理 & 描画ユーティリティ =========
 def plot_one_box(
     box: np.ndarray,
     img: np.ndarray,
@@ -173,14 +136,53 @@ def postprocess(
     for i, pred in enumerate(preds):
         shape = orig_img[i].shape if isinstance(orig_img, list) else orig_img.shape
         if not len(pred):
-            results.append({"det": [], "segment": []})
+            results.append({"det": []})
             continue
         pred[:, :4] = ops.scale_boxes(input_hw, pred[:, :4], shape).round()
         results.append({"det": pred})
     return results
 
 
-# ========= 推論本体 =========
+# ========= gRPC クライアント =========
+def _init_grpc_client():
+    global _grpc_client, _grpc_input_name
+    if _grpc_client is not None:
+        return
+
+    log.info(f"Create gRPC client to OVMS: {ENDPOINT}")
+    _grpc_client = ovmsclient.make_grpc_client(ENDPOINT)
+
+    meta = _grpc_client.get_model_metadata(
+        model_name=MODEL_NAME,
+        timeout=OVMS_TIMEOUT
+    )
+    if INPUT_NAME_ENV:
+        _grpc_input_name = INPUT_NAME_ENV
+    else:
+        _grpc_input_name = next(iter(meta["inputs"]))
+
+    log.info(f"OVMS model input name (gRPC): {_grpc_input_name}")
+
+
+# ========= REST クライアント =========
+def _init_rest_client():
+    global _rest_session, _rest_url, _rest_input_name
+    if _rest_session is not None:
+        return
+
+    if not ENDPOINT.startswith("http"):
+        base = "http://" + ENDPOINT
+    else:
+        base = ENDPOINT
+
+    _rest_session = requests.Session()
+    _rest_url = base.rstrip("/") + f"/v2/models/{MODEL_NAME}/infer"
+    _rest_input_name = INPUT_NAME_ENV or "images"
+
+    log.info(f"Create REST client to OVMS: {_rest_url}, input={_rest_input_name}")
+
+
+# ========= gRPC 推論 =========
 def _grpc_detect(image: np.ndarray):
     _init_grpc_client()
 
@@ -194,22 +196,18 @@ def _grpc_detect(image: np.ndarray):
         model_name=MODEL_NAME,
         timeout=OVMS_TIMEOUT,
     )
-    # ovmsclient は dict を返すので最初の value を取得
     if isinstance(boxes, dict):
         boxes = next(iter(boxes.values()))
     detections = postprocess(pred_boxes=boxes, input_hw=input_hw, orig_img=image)
     return detections
 
 
-def _rest_detect(image: np.ndarray):
-    """
-    KServe/OVMS REST v2用の参考実装。
-    モデルの input_name / 出力shape に応じて調整してください。
-    """
+# ========= REST JSON 推論（従来形式） =========
+def _rest_detect_json(image: np.ndarray):
     _init_rest_client()
 
     preprocessed = letterbox(image)[0]
-    input_tensor = np.expand_dims(preprocessed, 0).astype("float32")
+    input_tensor = np.expand_dims(preprocessed, 0).astype("uint8")
     input_hw = preprocessed.shape[:2]
 
     payload = {
@@ -217,7 +215,7 @@ def _rest_detect(image: np.ndarray):
             {
                 "name": _rest_input_name,
                 "shape": list(input_tensor.shape),
-                "datatype": "FP32",
+                "datatype": "UINT8",
                 "data": input_tensor.reshape(-1).tolist(),
             }
         ]
@@ -227,7 +225,6 @@ def _rest_detect(image: np.ndarray):
     resp.raise_for_status()
     out = resp.json()
 
-    # v2: outputs[0].data / .shape を前提（YOLO形式に合わせる必要あり）
     outputs = out.get("outputs", [])
     if not outputs:
         raise RuntimeError("No outputs from REST model")
@@ -237,20 +234,97 @@ def _rest_detect(image: np.ndarray):
     shape = o0.get("shape", None)
     if shape:
         data = data.reshape(shape)
-    # ここでは [N, anchors, 85] のような YOLO 出力を想定
-    boxes = data
-    detections = postprocess(pred_boxes=boxes, input_hw=input_hw, orig_img=image)
+
+    detections = postprocess(pred_boxes=data, input_hw=input_hw, orig_img=image)
     return detections
 
 
+# ========= REST Binary 推論（rawバイナリ） =========
+def _rest_detect_binary(image: np.ndarray):
+    """
+    KServe REST v2 の raw binary 入力を使用した高速版。
+
+    - JSON 部分: 入力メタデータ（shape, datatype など）
+    - バイナリ部分: UINT8 の生データ（N,H,W,C）
+    を 1つの HTTP ボディに連結して送る。
+
+    参考: OVMS docs 'Predict on Binary Inputs via KServe API'
+    """
+    _init_rest_client()
+
+    preprocessed = letterbox(image)[0]
+    input_tensor = np.expand_dims(preprocessed, 0).astype("uint8")
+    input_hw = preprocessed.shape[:2]
+
+    tensor_bytes = input_tensor.tobytes()
+    binary_size = len(tensor_bytes)
+
+    # JSON header 部分
+    header_obj = {
+        "inputs": [
+            {
+                "name": _rest_input_name,
+                "shape": list(input_tensor.shape),
+                "datatype": "UINT8",
+                "parameters": {
+                    "binary_data_size": binary_size
+                },
+            }
+        ]
+    }
+
+    header_bytes = json.dumps(header_obj).encode("utf-8")
+
+    headers = {
+        "Content-Type": "application/octet-stream",
+        "Inference-Header-Content-Length": str(len(header_bytes)),
+        "Content-Length": str(len(header_bytes) + binary_size),
+    }
+
+    body = header_bytes + tensor_bytes
+
+    resp = _rest_session.post(
+        _rest_url,
+        headers=headers,
+        data=body,
+        timeout=OVMS_TIMEOUT,
+    )
+    resp.raise_for_status()
+    out = resp.json()
+
+    outputs = out.get("outputs", [])
+    if not outputs:
+        raise RuntimeError("No outputs from REST model")
+
+    o0 = outputs[0]
+    data = np.array(o0["data"], dtype=np.float32)
+    shape = o0.get("shape", None)
+    if shape:
+        data = data.reshape(shape)
+
+    detections = postprocess(pred_boxes=data, input_hw=input_hw, orig_img=image)
+    return detections
+
+
+# ========= 公開API: detect / draw_results =========
 def detect(image: np.ndarray):
     """
-    プロトコルに応じて gRPC or REST を呼び分ける。
+    環境変数に応じて gRPC / REST(JSON) / REST(Binary) を切替。
+    OVMS_PROTOCOL = grpc / rest
+    OVMS_REST_MODE = binary / json
     """
-    if PROTOCOL == "rest":
-        return _rest_detect(image)
-    # デフォルト gRPC
-    return _grpc_detect(image)
+    protocol = os.environ.get("OVMS_PROTOCOL", PROTOCOL).lower()
+    rest_mode = os.environ.get("OVMS_REST_MODE", REST_MODE).lower()
+
+    if protocol == "rest":
+        log.info(f"DETECT MODE=rest({rest_mode}) ENDPOINT={ENDPOINT}")
+        if rest_mode == "binary":
+            return _rest_detect_binary(image)
+        else:
+            return _rest_detect_json(image)
+    else:
+        log.info(f"DETECT MODE=grpc ENDPOINT={ENDPOINT}")
+        return _grpc_detect(image)
 
 
 def draw_results(results: Dict, source_image: np.ndarray, label_map: Dict):
