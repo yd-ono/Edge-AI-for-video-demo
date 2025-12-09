@@ -1,6 +1,4 @@
 #!/bin/bash
-IMAGE=quay.io/yono/yolov8-demo:1.0
-# IMAGE=localhost/test:latest
 
 sudo podman run --rm -it \
   --privileged \
@@ -10,5 +8,4 @@ sudo podman run --rm -it \
   --security-opt seccomp=unconfined \
   --security-opt apparmor=unconfined \
   -p 5000:5000 \
-  --security-opt label=disable \
-  ${IMAGE} /bin/bash
+  --security-opt label=disable quay.io/yono/yolov8-demo:2.0 /bin/bash

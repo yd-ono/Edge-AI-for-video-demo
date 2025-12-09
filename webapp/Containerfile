@@ -1,15 +1,23 @@
 FROM registry.access.redhat.com/ubi9/ubi-minimal:latest
-# USER root
 
+# 必要最小限のパッケージのみインストール
 RUN microdnf -y update && \
-    microdnf --disableplugin subscription-manager -y install vim gcc python3-devel python3-pip libglvnd-glx && \
+    microdnf --disableplugin=subscription-manager -y install \
+        python3 \
+        python3-pip \
+        libglvnd-glx && \
     microdnf clean all
 
 WORKDIR /app
+
+# 先に requirements のみコピーして依存レイヤーを分離
+COPY requirements.txt ./
+RUN pip3 install --no-cache-dir -r requirements.txt
+
+# 残りのアプリケーションコードをコピー
 COPY . ./
-RUN pip install --no-cache-dir -r requirements.txt
 
 EXPOSE 5000
 
 WORKDIR /app/src
-CMD ["python", "app.py"]
+CMD ["python3", "app.py"]

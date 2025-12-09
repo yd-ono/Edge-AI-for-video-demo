@@ -28,7 +28,7 @@ camera = Camera()
 latest_raw_frame = None          # 生フレーム
 frame_lock = threading.Lock()
 
-latest_detections = None         # 直近の推論結果（ndarray [N,6]）
+latest_detections = None         # 直近の推論結果（ovms.detect()[0]）
 latest_det_ts = 0.0              # その推論が完了した時刻
 detection_lock = threading.Lock()
 
@@ -84,14 +84,10 @@ def inference_loop(worker_id: int, label_map):
 
         start = time.perf_counter()
         try:
-            # detect は {"det": ndarray} を返す
-            res = ovms.detect(frame)
-            det = res["det"]          # ndarray [N,6]
-
+            det0 = ovms.detect(frame)[0]
             with detection_lock:
-                latest_detections = det
+                latest_detections = det0
                 latest_det_ts = time.time()
-
         except Exception as e:
             log.error(f"[worker={worker_id}] Inference failed: {e}")
 
@@ -125,22 +121,26 @@ def _generate_stream(annotated: bool = False):
 
             if det is not None and (now - det_ts) <= DETECTION_TTL:
                 try:
-                    # ovms.draw_results は {"det": ndarray} を受ける
-                    img = ovms.draw_results({"det": det}, img.copy(), label_map)
+                    img = ovms.draw_results(det, img.copy(), label_map)
                 except Exception as e:
                     log.error(f"draw_results failed: {e}")
                     img = frame
+            else:
+                img = frame
 
         ok, buf = cv2.imencode(".jpg", img)
         if not ok:
             continue
 
+        payload = buf.tobytes()
         yield (
             boundary +
             b"Content-Type: image/jpeg\r\n\r\n" +
-            buf.tobytes() +
+            payload +
             b"\r\n"
         )
+
+        time.sleep(0.01)
 
 
 @app.route("/video_feed")
@@ -197,7 +197,7 @@ if __name__ == "__main__":
     with open("coco.yaml", "r") as f:
         config = yaml.safe_load(f)
     label_map = config["names"]
-
+    
     # カメラ
     t_cap = threading.Thread(target=capture_loop, daemon=True)
     t_cap.start()
