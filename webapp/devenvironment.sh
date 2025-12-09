@@ -1,6 +1,6 @@
 #!/bin/bash
-IMAGE=quay.io/yono/yolov8-demo:1.0
-# IMAGE=localhost/test:latest
+# IMAGE=quay.io/yono/yolov8-demo:1.0
+IMAGE=localhost/test:latest
 
 sudo podman run --rm -it \
   --privileged \
